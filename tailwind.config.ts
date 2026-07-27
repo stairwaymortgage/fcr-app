@@ -88,6 +88,13 @@ const config: Config = {
     },
 
     extend: {
+      maxWidth: {
+        // The page shell. Every mockup wraps its content in
+        // `max-width: 1240px; margin: 0 auto; padding: 0 32px` — header.html
+        // (twice), footer.html, and 404.html (twice). Pair with `px-8`.
+        shell: "1240px",
+      },
+
       fontFamily: {
         // The var(--font-*) entries are supplied by next/font/google in
         // app/layout.tsx. The literal family name follows each variable as a
