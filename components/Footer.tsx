@@ -126,7 +126,7 @@ export default function Footer({
       <div className="mx-auto max-w-shell px-8">
         <p className="mb-8 max-w-[820px] text-[12.5px] leading-[1.65] tracking-[-0.005em] text-white/55">
           <strong className="font-semibold text-white/85">
-            Florida Contractor Registry
+            FloridaContractorRegistry.com
           </strong>{" "}
           is a private commercial directory operated by Olga&rsquo;s Friends
           LLC. We are{" "}
@@ -135,9 +135,10 @@ export default function Footer({
           </strong>{" "}
           the State of Florida, the Florida Department of Business and
           Professional Regulation (DBPR), the Construction Industry Licensing
-          Board, or any government agency. License information is republished
-          from public DBPR records under Chapter 119, Florida Statutes, and may
-          not reflect real-time status. For official license verification, visit{" "}
+          Board, or any government agency. License information shown is
+          republished from public DBPR records under Chapter 119, Florida
+          Statutes, and may not reflect the most current status. For official
+          license verification, visit{" "}
           <a
             href="https://www.myfloridalicense.com"
             target="_blank"
