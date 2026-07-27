@@ -22,5 +22,15 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  /*
+   * `_handoff` holds design/reference material, not application source. It is
+   * gitignored, but "include" above sweeps **\/*.ts, so tsc would still
+   * type-check it — and _handoff/09_dbpr_ingestion/sync_dbpr.ts imports
+   * packages we do not install until Week 2 (@supabase/supabase-js,
+   * csv-parse). That breaks `next build`, which is what Vercel runs.
+   *
+   * When sync_dbpr.ts is needed, copy it into lib/ alongside its
+   * dependencies — that is where it should be type-checked.
+   */
+  "exclude": ["node_modules", "_handoff"]
 }
