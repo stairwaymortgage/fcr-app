@@ -1,24 +1,20 @@
+/*
+ * globals.css
+ * -----------
+ * We deliberately do NOT set body colors, backgrounds, or fonts here.
+ * Those are applied in app/layout.tsx via Tailwind design tokens
+ * (bg-paper, text-ink, font-sans) — single source of truth.
+ *
+ * Non-negotiables from Build Brief v1.3 §09:
+ *   - Body background is always paper (#fdfbf6), never pure white
+ *   - Body text is always ink (#181a1f), never pure black
+ *   - Body font is always Inter Tight, never system Arial fallback
+ *   - No dark mode — the palette is fixed
+ */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}
 
 @layer utilities {
   .text-balance {

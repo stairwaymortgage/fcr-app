@@ -89,10 +89,15 @@ const config: Config = {
 
     extend: {
       fontFamily: {
+        // The var(--font-*) entries are supplied by next/font/google in
+        // app/layout.tsx. The literal family name follows each variable as a
+        // belt-and-braces fallback, then the system stack.
+        //
         // Display: headings, page titles, profile names, kicker italics.
-        serif: ["Fraunces", "Georgia", "serif"],
+        serif: ["var(--font-serif)", "Fraunces", "Georgia", "serif"],
         // Body: paragraphs, navigation, form labels, buttons, all UI text.
         sans: [
+          "var(--font-sans)",
           "Inter Tight",
           "-apple-system",
           "BlinkMacSystemFont",
@@ -100,7 +105,13 @@ const config: Config = {
           "sans-serif",
         ],
         // Data affordance: license numbers, dates, eyebrow tags, timestamps.
-        mono: ["JetBrains Mono", "ui-monospace", "Cascadia Code", "monospace"],
+        mono: [
+          "var(--font-mono)",
+          "JetBrains Mono",
+          "ui-monospace",
+          "Cascadia Code",
+          "monospace",
+        ],
       },
 
       borderRadius: {
