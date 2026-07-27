@@ -59,7 +59,7 @@ function TopStrip({
 }) {
   return (
     <div className="bg-navy-deep text-gold-pale">
-      <div className="mx-auto flex max-w-[1240px] items-center justify-between px-8 py-2 text-xs font-medium uppercase tracking-[0.08em]">
+      <div className="mx-auto flex max-w-shell items-center justify-between px-8 py-2 text-xs font-medium uppercase tracking-[0.08em]">
         <p>
           Florida Public Records
           <Dot />
@@ -150,7 +150,7 @@ export default function Header({
       />
 
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-paper py-[22px]">
-        <div className="mx-auto flex max-w-[1240px] items-center justify-between gap-10 px-8 max-[1000px]:gap-4">
+        <div className="mx-auto flex max-w-shell items-center justify-between gap-10 px-8 max-[1000px]:gap-4">
           <Logo />
           <SearchBar searchQuery={searchQuery} />
 
