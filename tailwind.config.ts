@@ -89,10 +89,19 @@ const config: Config = {
 
     extend: {
       maxWidth: {
-        // The page shell. Every mockup wraps its content in
+        // Two container widths, split by audience. Both pair with `px-8`.
+        //
+        // The public page shell. Every public mockup wraps its content in
         // `max-width: 1240px; margin: 0 auto; padding: 0 32px` — header.html
-        // (twice), footer.html, and 404.html (twice). Pair with `px-8`.
+        // (twice), footer.html, and 404.html (twice).
         shell: "1240px",
+        // The authenticated app shell — admin and contractor portal. Wider,
+        // because those pages carry data tables that need the room. Appears 17
+        // times across the handoff: admin_header.html, contractor_header.html,
+        // list_detail_layout.html, all five 08_admin/ pages (header + page
+        // container), contractor_inquiries.html, manage_profile.html, and
+        // claim_approved.html.
+        app: "1480px",
       },
 
       fontFamily: {
@@ -131,7 +140,9 @@ const config: Config = {
         xl: "0",
         "2xl": "0",
         "3xl": "0",
-        full: "9999px", // ONLY for avatar circles and status dots
+        // ONLY for shapes whose roundness IS the shape: avatar circles, status
+        // dots, and count-badge pills. Never on cards, inputs, or buttons.
+        full: "9999px",
       },
     },
   },
