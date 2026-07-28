@@ -62,6 +62,11 @@ const config: Config = {
 
       /* Gray scale — the complete set, Build Brief §03 ----------------- */
       gray: {
+        // Inset band inside a raised panel — list/detail headers, action bars.
+        // Like paper.raised, this is absent from the Build Brief §03 palette
+        // (which lists only gray-100/200/300/500/700) but is established in the
+        // mockups: list_detail_layout.html uses it 4×, contractor_inquiries 4×,
+        // admin_claim_review 3×, always for a band recessed within a card.
         50: "#fafbfc",
         100: "#f3f4f7", // admin page background, section dividers
         200: "#e8eaee", // card borders, dividers
