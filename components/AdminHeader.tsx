@@ -94,7 +94,7 @@ function NavBadge({ count }: { count?: number }) {
     <>
       <span
         aria-hidden="true"
-        className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gold px-[5px] font-mono text-[10px] font-bold text-navy-deep"
+        className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gold px-[5px] font-mono text-chip font-bold text-navy-deep"
       >
         {count}
       </span>
@@ -124,12 +124,12 @@ function Logo() {
         <span className="flex h-8 w-8 items-center justify-center bg-gold font-serif text-base font-bold italic text-navy-deep">
           F
         </span>
-        <span className="font-serif text-[17px] font-semibold tracking-[-0.01em] text-white">
+        <span className="font-serif text-[17px] font-semibold tracking-wordmark text-white">
           Florida Contractor Registry
         </span>
       </Link>
 
-      <span className="ml-3.5 border border-gold px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-gold-light">
+      <span className="ml-3.5 border border-gold px-2.5 py-1 font-mono text-chip font-semibold uppercase tracking-eyebrow text-gold-light">
         Admin
       </span>
     </div>
@@ -152,7 +152,7 @@ export default function AdminHeader({
 
         <nav
           aria-label="Admin"
-          className="flex gap-7 text-[13px] font-medium text-white/65"
+          className="flex gap-7 text-ui font-medium text-white/65"
         >
           {NAV_LINKS.map(({ href, label, badge }) => {
             const isActive = currentPath === href;
@@ -176,7 +176,7 @@ export default function AdminHeader({
             mockup defines its trigger, contents, or open state — building it
             now would mean inventing design. When there is a mockup and a real
             auth flow, this becomes a "use client" <UserMenu>. */}
-        <div className="flex shrink-0 items-center gap-2.5 text-[13px] text-white/75">
+        <div className="flex shrink-0 items-center gap-2.5 text-ui text-white/75">
           <span
             aria-hidden="true"
             className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-gold text-xs font-bold text-navy-deep"

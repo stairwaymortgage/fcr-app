@@ -89,10 +89,10 @@ function Logo() {
         </span>
       </span>
       <span className="flex flex-col leading-[1.15]">
-        <span className="font-serif text-[19px] font-semibold tracking-[-0.01em] text-navy">
+        <span className="font-serif text-[19px] font-semibold tracking-wordmark text-navy">
           Florida Contractor Registry
         </span>
-        <span className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500">
+        <span className="mt-0.5 text-micro font-medium uppercase tracking-eyebrow text-gray-500">
           Public Records · Verified Licenses
         </span>
       </span>
@@ -158,7 +158,7 @@ export default function Header({
               action. A hamburger menu is explicitly out of scope for v1. */}
           <nav
             aria-label="Primary"
-            className="flex gap-7 text-[13px] font-medium text-gray-700 max-[1000px]:hidden"
+            className="flex gap-7 text-ui font-medium text-gray-700 max-[1000px]:hidden"
           >
             {NAV_LINKS.map(({ href, label }) => {
               const isActive = currentPath === href;

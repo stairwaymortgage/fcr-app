@@ -120,7 +120,7 @@ export default function StatsStrip({
           key={`${index}-${label}`}
           className="flex flex-col border border-gray-200 bg-paper-raised px-[26px] py-[22px]"
         >
-          <dt className="order-2 mt-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-gray-500">
+          <dt className="order-2 mt-1 font-mono text-[10.5px] uppercase tracking-label text-gray-500">
             {label}
           </dt>
 
@@ -137,7 +137,7 @@ export default function StatsStrip({
 
           {delta && (
             <dd
-              className={`order-3 mt-2.5 font-mono text-[11px] tracking-[0.04em] ${DELTA_COLOR[deltaType]}`}
+              className={`order-3 mt-2.5 font-mono text-micro tracking-[0.04em] ${DELTA_COLOR[deltaType]}`}
             >
               {delta}
             </dd>

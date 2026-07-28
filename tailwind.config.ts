@@ -127,6 +127,45 @@ const config: Config = {
         app: "1480px",
       },
 
+      /* Type scale — Rule of Three promotions ------------------------
+       * Only sizes used 3+ times live here; 1–2 use values stay inline as
+       * arbitrary values. Defined as plain strings, NOT [size, lineHeight]
+       * tuples, so each emits font-size alone — exactly what the arbitrary
+       * values they replace emitted. A tuple would silently add a
+       * line-height and change rendering.
+       *
+       * Under `extend`, so Tailwind's built-in text-xs / text-sm / ... all
+       * survive alongside these.
+       */
+      fontSize: {
+        // Tag chips and count badges. 4 uses: AdminHeader and
+        // ContractorHeader each render a portal tag chip and a nav badge.
+        chip: "10px",
+        // §03 names 11px as the eyebrow size ("gold uppercase mono tag
+        // (e.g., 'FOR HOMEOWNERS'), 11px, 0.14em letter-spacing"), but it is
+        // NOT eyebrow-only — StatsStrip uses it for the delta line. Named for
+        // the scale step, not one role. 3 uses.
+        micro: "11px",
+        // Small interface text: nav links, footer links, list tabs, user
+        // chips. 7 uses — the most repeated size in the app.
+        ui: "13px",
+      },
+
+      /* Letter-spacing — Rule of Three promotions --------------------- */
+      letterSpacing: {
+        // §03: "Eyebrow — gold uppercase mono tag ..., 0.14em letter-spacing".
+        // All 3 uses are that treatment: the two portal tag chips and the
+        // public Header's uppercase tagline.
+        eyebrow: "0.14em",
+        // The slightly tighter tracking on small-caps labels: Footer column
+        // headings, StatsStrip stat labels, ListDetailLayout list label.
+        // 3 uses.
+        label: "0.12em",
+        // Serif wordmarks only — Header, AdminHeader, ContractorHeader.
+        // Single-role, so a use-name is honest here. 3 uses.
+        wordmark: "-0.01em",
+      },
+
       fontFamily: {
         // The var(--font-*) entries are supplied by next/font/google in
         // app/layout.tsx. The literal family name follows each variable as a

@@ -161,12 +161,12 @@ export default function ListDetailLayout({
         <div className="border-b border-gray-200 bg-gray-50 px-5 py-[18px]">
           {/* Mockup uses a <div>; rendered as <h2> so the queue has a real
               heading in the document outline. Styling is unchanged. */}
-          <h2 className="mb-3 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-navy">
+          <h2 className="mb-3 font-mono text-micro font-semibold uppercase tracking-label text-navy">
             {listLabel}
           </h2>
 
           {listTabs && (
-            <div className="flex gap-[18px] text-[13px] font-medium">
+            <div className="flex gap-[18px] text-ui font-medium">
               {listTabs}
             </div>
           )}

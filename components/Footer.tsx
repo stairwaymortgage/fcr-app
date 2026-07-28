@@ -98,12 +98,12 @@ function FooterColumn({
     <div>
       {/* Mockup uses <h5>; rendered as <h2> so the document outline does not
           skip levels. Styling is byte-identical. */}
-      <h2 className="mb-[14px] font-mono text-[10.5px] font-medium uppercase tracking-[0.12em] text-gold-light">
+      <h2 className="mb-[14px] font-mono text-[10.5px] font-medium uppercase tracking-label text-gold-light">
         {heading}
       </h2>
       <ul>
         {links.map(({ href, label }) => (
-          <li key={href} className="py-1 text-[13px]">
+          <li key={href} className="py-1 text-ui">
             <Link
               href={href}
               className={`text-white/65 transition-colors hover:text-gold-light ${FOCUS_RING}`}
