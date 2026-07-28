@@ -37,8 +37,26 @@ const config: Config = {
       inherit: "inherit",
 
       /* Neutrals — explicit, so accidents are impossible -------------- */
-      white: "#ffffff", // ONLY inputs, small card surfaces, rgba() overlays
-      paper: "#fdfbf6", // body background — the default surface
+      white: "#ffffff", // ONLY input fields and rgba() overlays. NOT card
+      // surfaces — those use paper.raised. See the note below.
+      paper: {
+        DEFAULT: "#fdfbf6", // body background — the default surface
+        // Raised card surface; sits above --paper, never #fff per §03/§09.
+        //
+        // The six stats_strip mockups all specify `background: white` on
+        // .stat-card, but Build Brief §03 prohibits pure white three separate
+        // times: "Warm off-white, NEVER pure white" (--paper), "No pure white
+        // backgrounds. Always --paper (#fdfbf6). Pure white reads cheap.", and
+        // §09 "Never #000 or #fff ... pure white will look broken."
+        //
+        // Resolution: the mockups' `background: white` is implementation
+        // shorthand for "raised lighter card," not a considered override of a
+        // rule stated three times. We honor the intent (a card that lifts off
+        // the page) while obeying the rule (never #fff). Every card surface in
+        // the app uses this token — stats cards, ListDetailLayout panes,
+        // StatusBanner, admin tables.
+        raised: "#fffdf8",
+      },
       ink: "#181a1f", // body text — the default text color
       // NOTE: `black` is deliberately absent. Never #000. (Build Brief §09)
 
