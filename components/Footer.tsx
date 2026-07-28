@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FOCUS_RING_NAVY } from "@/lib/focus";
 
 /**
  * Footer — site-wide footer.
@@ -81,12 +82,6 @@ const FOOTER_COLUMNS = [
   },
 ] as const;
 
-/** Focus treatment for links on the navy-deep surface. */
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 " +
-  "focus-visible:ring-gold-light focus-visible:ring-offset-2 " +
-  "focus-visible:ring-offset-navy-deep";
-
 function FooterColumn({
   heading,
   links,
@@ -106,7 +101,7 @@ function FooterColumn({
           <li key={href} className="py-1 text-ui">
             <Link
               href={href}
-              className={`text-white/65 transition-colors hover:text-gold-light ${FOCUS_RING}`}
+              className={`text-white/65 transition-colors hover:text-gold-light ${FOCUS_RING_NAVY}`}
             >
               {label}
             </Link>
@@ -143,7 +138,7 @@ export default function Footer({
             href="https://www.myfloridalicense.com"
             target="_blank"
             rel="noopener noreferrer"
-            className={`text-gold-light underline ${FOCUS_RING}`}
+            className={`text-gold-light underline ${FOCUS_RING_NAVY}`}
           >
             myfloridalicense.com
           </a>

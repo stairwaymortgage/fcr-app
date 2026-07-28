@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FOCUS_RING_PAPER } from "@/lib/focus";
 
 /**
  * Header — public site header.
@@ -34,11 +35,6 @@ const NAV_LINKS = [
   { href: "/types", label: "License Types" },
   { href: "/contractors", label: "For Contractors" },
 ] as const;
-
-/** Shared focus treatment for links on the paper surface. */
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold " +
-  "focus-visible:ring-offset-2 focus-visible:ring-offset-paper";
 
 /** 6px gold separator between top-strip facts. Decorative. */
 function Dot() {
@@ -79,7 +75,7 @@ function Logo() {
     <Link
       href="/"
       aria-label="Florida Contractor Registry — home"
-      className={`flex shrink-0 items-center gap-[14px] ${FOCUS_RING}`}
+      className={`flex shrink-0 items-center gap-[14px] ${FOCUS_RING_PAPER}`}
     >
       <span className="relative flex h-[42px] w-[42px] items-center justify-center bg-navy">
         {/* .logo-mark::after — gold rule inset 4px inside the navy square */}
@@ -167,7 +163,7 @@ export default function Header({
                   key={href}
                   href={href}
                   aria-current={isActive ? "page" : undefined}
-                  className={`pb-0.5 transition-colors hover:text-navy ${FOCUS_RING} ${
+                  className={`pb-0.5 transition-colors hover:text-navy ${FOCUS_RING_PAPER} ${
                     isActive ? "border-b-2 border-gold text-navy" : ""
                   }`}
                 >

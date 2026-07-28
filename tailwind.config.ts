@@ -28,6 +28,13 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    // REQUIRED. Shared class strings live here (lib/focus.ts). Tailwind scans
+    // these globs as text — a class string is only emitted if it appears in a
+    // scanned file. Moving FOCUS_RING out of components/ into an unscanned
+    // lib/ silently purged all seven focus-visible rules with no build error;
+    // the rings simply stopped rendering. Any future directory holding class
+    // strings must be added here too.
+    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     colors: {

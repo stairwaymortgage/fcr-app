@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FOCUS_RING_NAVY } from "@/lib/focus";
 
 /**
  * ContractorHeader — persistent header on every authenticated contractor page.
@@ -94,15 +95,6 @@ function contractorNavLinks(slug: string): readonly ContractorNavLink[] {
 }
 
 /**
- * Focus treatment for links on the navy-deep surface.
- * Same surface as Footer and AdminHeader, so the same offset color.
- */
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 " +
-  "focus-visible:ring-gold-light focus-visible:ring-offset-2 " +
-  "focus-visible:ring-offset-navy-deep";
-
-/**
  * Gold count pill on a nav link. Renders nothing at zero — the mockup docs are
  * explicit that an empty badge is hidden, not shown as "0" (docs line 308).
  *
@@ -146,7 +138,7 @@ function Logo({ contractorSlug }: { contractorSlug: string }) {
       <Link
         href={`/manage/${contractorSlug}`}
         aria-label="Florida Contractor Registry — contractor portal home"
-        className={`flex items-center gap-3 ${FOCUS_RING}`}
+        className={`flex items-center gap-3 ${FOCUS_RING_NAVY}`}
       >
         <span className="flex h-8 w-8 items-center justify-center bg-gold font-serif text-base font-bold italic text-navy-deep">
           F
@@ -188,7 +180,7 @@ export default function ContractorHeader({
                 key={href}
                 href={href}
                 aria-current={isActive ? "page" : undefined}
-                className={`pb-0.5 transition-colors hover:text-white ${FOCUS_RING} ${
+                className={`pb-0.5 transition-colors hover:text-white ${FOCUS_RING_NAVY} ${
                   isActive ? "border-b-2 border-gold text-white" : ""
                 }`}
               >
