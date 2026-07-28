@@ -89,14 +89,35 @@ const config: Config = {
         pale: "#f5ecd9", // callout / banner backgrounds, hover highlight
       },
 
-      /* Status — structured naming (PREFERRED in new components) ------- */
+      /* Status — structured naming (PREFERRED in new components) -------
+       *
+       * THE WORD "warn" MEANS TWO DIFFERENT COLOURS IN THIS CODEBASE, and both
+       * are correct against their own mockups. StatusBanner's `warn` variant is
+       * amber (status.warn, #8d6e00) — "unusual, not broken". StatsStrip's
+       * StatColor `warn` is RED (status.error, #c2415b) — "attention-negative",
+       * e.g. a Pending Review count. Verified across six mockups each. Do not
+       * reconcile them; see the cross-reference comments in both components.
+       *
+       * *Bg  = the pale fill behind a status surface.
+       * *Edge = the muted 1px border on that surface. Distinct from the
+       *         saturated base colour, which is reserved for the accent bar,
+       *         icon square and text.
+       */
       status: {
         success: "#2e7d32", // claimed, current license, paid
         successBg: "#e8f5e9",
+        // StatusBanner's success fill in the mockup is #ecf6ed — 4/1/4 points
+        // off successBg, imperceptible. successBg is reused rather than
+        // minting a near-duplicate token, which keeps the *Bg family coherent
+        // (warnBg and errorBg match their mockup fills exactly).
+        successDeep: "#1b5e20", // success status tag; .btn-approve:hover
+        successEdge: "#c6e0c8",
         warn: "#8d6e00", // pending, delinquent license
         warnBg: "#fff8e1",
+        warnEdge: "#e8d490",
         error: "#c2415b", // danger zone, void license
         errorBg: "#fef2f4",
+        errorEdge: "#e8c5cc",
       },
 
       /* Status — semantic aliases (mockup-HTML compatibility) ----------
@@ -129,7 +150,14 @@ const config: Config = {
 
       /* Type scale — Rule of Three promotions ------------------------
        * Only sizes used 3+ times live here; 1–2 use values stay inline as
-       * arbitrary values. Defined as plain strings, NOT [size, lineHeight]
+       * arbitrary values.
+       *
+       * COUNTING RULE: temporary scaffolding never counts toward the three.
+       * app/preview/ is committed but marked for deletion, so its occurrences
+       * are excluded from promotion audits — only production code counts.
+       * It will keep appearing in grep counts until it is deleted; ignore it.
+       *
+       * Defined as plain strings, NOT [size, lineHeight]
        * tuples, so each emits font-size alone — exactly what the arbitrary
        * values they replace emitted. A tuple would silently add a
        * line-height and change rendering.

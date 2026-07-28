@@ -22,7 +22,16 @@
  * layout owns `bg-gray-100` — scoped to that layout, never globals.css.
  */
 
-/** Big-number color. Navy is the absence of a modifier, so it is not a value. */
+/**
+ * Big-number color. Navy is the absence of a modifier, so it is not a value.
+ *
+ * NOTE THE COLLISION: `warn` here is RED (status.error, #c2415b) —
+ * "attention-negative", e.g. a Pending Review count. StatusBanner's
+ * StatusVariant also has a `warn` and it is AMBER (status.warn, #8d6e00) —
+ * "unusual, not broken". Both match their own mockups, verified across six
+ * files each. They are NOT to be reconciled; see the matching note in
+ * StatusBanner.tsx.
+ */
 export type StatColor = "gold" | "green" | "warn";
 
 /**
