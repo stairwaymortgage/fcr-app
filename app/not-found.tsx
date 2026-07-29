@@ -4,6 +4,11 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
+import {
+  contractorCountLabel,
+  COUNTY_COUNT,
+  LICENSE_TYPE_COUNT,
+} from "@/lib/registry-stats";
 
 /**
  * 404 — lost-visitor recovery page.
@@ -68,8 +73,16 @@ export const metadata: Metadata = {
 const LAST_SYNC_DATE = "May 24, 2026";
 
 const RECOVERY_LINKS = [
-  { href: "/counties", text: "All 67 Florida counties", sub: "Browse by county" },
-  { href: "/types", text: "All 29 license types", sub: "Browse by trade" },
+  {
+    href: "/counties",
+    text: `All ${COUNTY_COUNT} Florida counties`,
+    sub: "Browse by county",
+  },
+  {
+    href: "/types",
+    text: `All ${LICENSE_TYPE_COUNT} license types`,
+    sub: "Browse by trade",
+  },
   { href: "/", text: "Back to the homepage", sub: "Start over" },
 ] as const;
 
@@ -146,9 +159,9 @@ export default function NotFound() {
               <p className="text-base leading-[1.65] text-gray-700">
                 The contractor record you&rsquo;re looking for may have been
                 removed from the DBPR database, or the URL may be incorrect.
-                Either way, the registry has 266,312 other licensed contractors
-                &mdash; there&rsquo;s a good chance the one you&rsquo;re looking
-                for is among them.
+                Either way, the registry has {contractorCountLabel()} other
+                licensed contractors &mdash; there&rsquo;s a good chance the one
+                you&rsquo;re looking for is among them.
               </p>
             </div>
 

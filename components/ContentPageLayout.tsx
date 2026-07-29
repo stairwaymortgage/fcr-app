@@ -4,6 +4,7 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
+import { contractorCountLabel } from "@/lib/registry-stats";
 
 /**
  * ContentPageLayout — the shared shell for all 12 long-form pages.
@@ -323,8 +324,8 @@ function RightRail() {
           Find a <em className="italic">contractor</em>
         </h3>
         <p className="mb-4 text-note leading-[1.55] text-gray-700">
-          Search 266,312 active Florida contractor licenses by name, license
-          number, city, or county.
+          Search {contractorCountLabel()} active Florida contractor licenses by
+          name, license number, city, or county.
         </p>
         <Link
           href="/"

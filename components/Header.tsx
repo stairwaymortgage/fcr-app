@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
+import { CONTRACTOR_COUNT } from "@/lib/registry-stats";
 
 /**
  * Header — public site header.
@@ -135,7 +136,7 @@ function SearchBar({ searchQuery }: { searchQuery?: string }) {
 export default function Header({
   currentPath,
   statsTimestamp,
-  contractorCount = 266312,
+  contractorCount = CONTRACTOR_COUNT,
   searchQuery,
 }: HeaderProps) {
   return (
