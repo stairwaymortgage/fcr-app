@@ -139,17 +139,38 @@ const seen = new Map();
 for (const r of rows) { const b = baseKey(r); seen.set(b, (seen.get(b) ?? 0) + 1); }
 const collidingBases = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
 
-const records = rows.map((r) => transform(r, collidingBases));
+const parsed = rows.map((r) => transform(r, collidingBases));
 
-// Audit
+// Audit BEFORE dedupe, so the collision count is still reported.
 const keys = new Map();
-for (const rec of records) keys.set(rec.dbpr_sync_key, (keys.get(rec.dbpr_sync_key) ?? 0) + 1);
+for (const rec of parsed) keys.set(rec.dbpr_sync_key, (keys.get(rec.dbpr_sync_key) ?? 0) + 1);
 const collisions = [...keys.values()].filter((n) => n > 1).reduce((a, n) => a + n - 1, 0);
 
+/**
+ * DEDUPE BY KEY BEFORE LOADING — not optional.
+ *
+ * Postgres rejects an INSERT ... ON CONFLICT DO UPDATE whose VALUES list
+ * contains the same conflict key twice: "ON CONFLICT DO UPDATE command cannot
+ * affect row a second time". A single upsert batch is one such statement, so
+ * two byte-identical source rows landing in the same batch abort it.
+ *
+ * The first full run failed exactly this way at batch 57000. Measuring the 7
+ * collisions was not the same as removing them.
+ *
+ * First occurrence wins; the duplicates are byte-identical, so which one
+ * survives is immaterial.
+ */
+const byKey = new Map();
+for (const rec of parsed) if (!byKey.has(rec.dbpr_sync_key)) byKey.set(rec.dbpr_sync_key, rec);
+const records = [...byKey.values()];
+const dropped = parsed.length - records.length;
+
 const stats = {
-  rows: records.length,
+  rowsParsed: parsed.length,
   distinctKeys: keys.size,
   keyCollisions: collisions,
+  rowsDroppedAsDuplicate: dropped,
+  rowsToLoad: records.length,
   nullLicenseNumber: records.filter((r) => !r.license_number).length,
   nullCity: records.filter((r) => !r.city).length,
   nullCounty: records.filter((r) => !r.county_code).length,
