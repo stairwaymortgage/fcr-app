@@ -211,13 +211,13 @@ export default function NotFound() {
                 <h2 className="mb-2.5 font-mono text-micro font-semibold uppercase tracking-label text-navy">
                   Why this happens
                 </h2>
-                <p className="text-[13.5px] leading-[1.6] text-gray-700">
+                <p className="text-note leading-[1.6] text-gray-700">
                   Contractor licenses can be voluntarily withdrawn, revoked, or
                   expire without renewal. When a license is removed from the
                   DBPR database, we remove the corresponding profile during our
                   weekly refresh.
                 </p>
-                <p className="mt-2 text-[13.5px] leading-[1.6] text-gray-700">
+                <p className="mt-2 text-note leading-[1.6] text-gray-700">
                   If you believe this page should exist,{" "}
                   <Link
                     href="/contact"

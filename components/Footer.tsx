@@ -93,7 +93,7 @@ function FooterColumn({
     <div>
       {/* Mockup uses <h5>; rendered as <h2> so the document outline does not
           skip levels. Styling is byte-identical. */}
-      <h2 className="mb-[14px] font-mono text-[10.5px] font-medium uppercase tracking-label text-gold-light">
+      <h2 className="mb-[14px] font-mono text-label font-medium uppercase tracking-label text-gold-light">
         {heading}
       </h2>
       <ul>

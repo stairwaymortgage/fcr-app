@@ -159,10 +159,22 @@ const config: Config = {
        * Only sizes used 3+ times live here; 1–2 use values stay inline as
        * arbitrary values.
        *
-       * COUNTING RULE: temporary scaffolding never counts toward the three.
-       * app/preview/ is committed but marked for deletion, so its occurrences
-       * are excluded from promotion audits — only production code counts.
-       * It will keep appearing in grep counts until it is deleted; ignore it.
+       * COUNTING RULE, three clauses:
+       *
+       * 1. Temporary scaffolding never counts. app/preview/ is committed but
+       *    marked for deletion, so its occurrences are excluded — only
+       *    production code counts. It keeps appearing in grep results until
+       *    it is deleted; ignore it.
+       *
+       * 2. Count DISTINCT FILES, not call sites. app/not-found.tsx uses
+       *    text-[13.5px] on two elements; that is one file, not two. Before
+       *    this promotion it stood at 2 files and 3 call sites, and stayed
+       *    inline.
+       *
+       * 3. COUNT THE FILE YOU ARE WRITING. text-[10.5px] was reported as "2
+       *    production uses" in dc5967b while that same commit added the third
+       *    — the audit counted only pre-existing files and missed the one
+       *    being authored. Run the count after writing, not before.
        *
        * Defined as plain strings, NOT [size, lineHeight]
        * tuples, so each emits font-size alone — exactly what the arbitrary
@@ -176,6 +188,13 @@ const config: Config = {
         // Tag chips and count badges. 4 uses: AdminHeader and
         // ContractorHeader each render a portal tag chip and a nav badge.
         chip: "10px",
+        // Uppercase mono labels. Single-role — all 4 files use it for exactly
+        // that: Footer column headings, StatsStrip stat labels, StatusBanner
+        // status tags, ContentPageLayout's nav tag. A use-name is honest here.
+        // Note the tracking varies by context (eyebrow 0.14em vs label
+        // 0.12em); only the size is shared, which is why this is a fontSize
+        // entry and not a component class.
+        label: "10.5px",
         // §03 names 11px as the eyebrow size ("gold uppercase mono tag
         // (e.g., 'FOR HOMEOWNERS'), 11px, 0.14em letter-spacing"), but it is
         // NOT eyebrow-only — StatsStrip uses it for the delta line. Named for
@@ -184,6 +203,11 @@ const config: Config = {
         // Small interface text: nav links, footer links, list tabs, user
         // chips. 7 uses — the most repeated size in the app.
         ui: "13px",
+        // Secondary body copy, below the 17px article body. 3 files:
+        // StatusBanner detail, the 404's "why this happens" aside,
+        // ContentPageLayout's rail module paragraph. Named for the text class
+        // rather than one use — same principle as micro over eyebrow.
+        note: "13.5px",
       },
 
       /* Letter-spacing — Rule of Three promotions --------------------- */

@@ -112,7 +112,7 @@ function ClaimListItem({
         <p className="font-serif text-[15px] font-semibold leading-[1.25] tracking-[-0.005em] text-ink">
           {row.name}
         </p>
-        <p className="mt-0.5 whitespace-nowrap font-mono text-[10.5px] tracking-[0.02em] text-gray-500">
+        <p className="mt-0.5 whitespace-nowrap font-mono text-label tracking-[0.02em] text-gray-500">
           {row.time}
         </p>
       </div>

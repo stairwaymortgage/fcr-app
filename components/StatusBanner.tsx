@@ -219,7 +219,7 @@ export default function StatusBanner({
             icon is geometry and the tag is caller copy, so the variant word is
             stated outright for screen readers rather than left to either. */}
         <p
-          className={`mb-1 font-mono text-[10.5px] font-semibold uppercase tracking-eyebrow ${v.tagColor}`}
+          className={`mb-1 font-mono text-label font-semibold uppercase tracking-eyebrow ${v.tagColor}`}
         >
           <span className="sr-only">{v.srLabel}: </span>
           {tag}
@@ -229,7 +229,7 @@ export default function StatusBanner({
           {headline}
         </h2>
 
-        <div className="text-[13.5px] leading-[1.55] text-gray-700">
+        <div className="text-note leading-[1.55] text-gray-700">
           {detail}
         </div>
       </div>

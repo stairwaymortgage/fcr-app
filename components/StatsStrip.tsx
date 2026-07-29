@@ -129,7 +129,7 @@ export default function StatsStrip({
           key={`${index}-${label}`}
           className="flex flex-col border border-gray-200 bg-paper-raised px-[26px] py-[22px]"
         >
-          <dt className="order-2 mt-1 font-mono text-[10.5px] uppercase tracking-label text-gray-500">
+          <dt className="order-2 mt-1 font-mono text-label uppercase tracking-label text-gray-500">
             {label}
           </dt>
 

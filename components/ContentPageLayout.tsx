@@ -322,7 +322,7 @@ function RightRail() {
         <h3 className="mb-3 font-serif text-lg font-semibold leading-[1.25] tracking-[-0.01em] text-navy">
           Find a <em className="italic">contractor</em>
         </h3>
-        <p className="mb-4 text-[13.5px] leading-[1.55] text-gray-700">
+        <p className="mb-4 text-note leading-[1.55] text-gray-700">
           Search 266,312 active Florida contractor licenses by name, license
           number, city, or county.
         </p>
@@ -396,7 +396,7 @@ export default function ContentPageLayout({
           aria-label="Site pages"
           className="sticky top-[110px] self-start text-ui max-[1200px]:static"
         >
-          <p className="mb-[18px] inline-block border-b border-gold pb-3.5 font-mono text-[10.5px] font-semibold uppercase tracking-eyebrow text-gold">
+          <p className="mb-[18px] inline-block border-b border-gold pb-3.5 font-mono text-label font-semibold uppercase tracking-eyebrow text-gold">
             Site Pages
           </p>
           <NavGroup items={SITE_PAGES} slug={slug} />
