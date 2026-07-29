@@ -13,6 +13,18 @@
  *   5. latitude / longitude stay NULL — DBPR publishes no coordinates
  *   6. upsert on city_slug
  *
+ * CITY COUNTS DO NOT SUM TO THE CONTRACTOR TOTAL, BY DESIGN.
+ *   sum(reference_cities.contractor_count)  234,881
+ *   count(contractors)                      266,305
+ *   gap                                      31,424
+ * Made up of 27,220 contractors with no county_code (27,099 registered out of
+ * state, and reference_cities.county_code is NOT NULL + FK), 2,673 with no
+ * city at all, and ~1,531 below the MIN_CONTRACTORS floor — typos such as
+ * JACSONVILLE that would otherwise each get a public /city/ page.
+ * A check asserting the two totals match is wrong, not the data. Also
+ * recorded on the column itself in
+ * db/migrations/2026-07-30_city_count_coverage_note.sql.
+ *
  * Never prints credential values.
  */
 import { readFileSync } from "node:fs";
