@@ -29,8 +29,44 @@
  * ---------------------------------------------------------------------------
  */
 
-/** Rows in the current DBPR extract. See the caveat above before changing. */
+/**
+ * Rows in the current DBPR extract. See the caveat above before changing.
+ *
+ * THE HOMEPAGE HERO AND AUTHORITY BAND BOTH RENDER THIS CONSTANT, DELIBERATELY.
+ * Wiring either to a live `count(*)` was considered and rejected on 2026-07-30:
+ * the live table holds 266,305 rows (seven fewer than this figure — the dedupe
+ * on dbpr_sync_key before upsert), so a live count would publish 266,305 on the
+ * front page as fact while the Header beside it still read 266,312. Worse, it
+ * would silently commit the site to the overstated figure that is currently
+ * awaiting Jim's ruling, by making it look measured rather than inherited.
+ *
+ * Every public surface therefore reads from here and nowhere else, so the whole
+ * site moves together on one edit. Do not "improve" one of them into a live
+ * query — mixing the two is what produces two different totals on one page.
+ *
+ * For reference, the four candidate figures as of the 2026-07-29 import:
+ *   266,312  this constant — the extract as delivered, used by every mockup
+ *   266,305  rows actually in the contractors table after dedupe
+ *   265,804  rows with license_status = 'Current'
+ *   122,225  rows with BOTH a licence number and an expiration date
+ */
 export const CONTRACTOR_COUNT = 266312;
+
+/**
+ * "Data as of …" — Header's statsTimestamp and Footer's lastSyncDate.
+ *
+ * A CONSTANT BECAUSE sync_runs IS EMPTY. The intended source is the newest
+ * sync_runs row, but that table has zero rows: the initial import was run from
+ * scripts/import-dbpr.mjs, which does not write an audit row. The weekly cron
+ * will, and this constant should become that query when it does.
+ *
+ * The two dates available from live data are both wrong to show a visitor:
+ * max(last_dbpr_sync_at) is 2026-07-29, which is when WE imported, not when
+ * DBPR published; and the extract's own date, embedded in every dbpr_sync_key,
+ * is 05/22/2026. The mockups say May 24, 2026, so that ships unchanged rather
+ * than inventing a third date.
+ */
+export const DATA_AS_OF = "May 24, 2026";
 
 /** Florida counties. Fixed by geography; reference_counties seeds all 67. */
 export const COUNTY_COUNT = 67;
