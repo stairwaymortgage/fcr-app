@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { contractorSlug } from "@/lib/contractor-slug";
 import { FOCUS_RING_NAVY, FOCUS_RING_PAPER } from "@/lib/focus";
 import {
   COUNTY_COUNT,
@@ -242,16 +241,19 @@ async function getActiveLicenseCount(db: Db): Promise<number> {
  *
  * nullsFirst: false so undated rows sort last instead of leading the list.
  *
- * FILTERED TO ROWS WITH A LICENCE NUMBER because the link target is built from
- * it: ~125k rows have license_number NULL, and their slugs collapse to
- * {name}-{city}, which is not reliably unique (see lib/contractor-slug.ts). A
- * list of six links that resolve is worth more than a faithful-but-broken one.
+ * FILTERED TO ROWS WITH A LICENCE NUMBER so the six shown are proper licences
+ * rather than qualifying-business records with nothing to verify.
+ *
+ * The link target is the STORED slug column, used verbatim — never recomputed.
+ * db/migrations/20260730_contractor_slug.sql assigns every slug and suffixes
+ * the 1,080 whose natural slug collides, so a TypeScript reimplementation would
+ * emit links that 404 for exactly those rows while looking correct.
  */
 async function getRecentlyAdded(db: Db) {
   const { data } = await db
     .from("contractors")
     .select(
-      "dbpr_sync_key, business_name, qualifying_agent_name, license_number, license_type, city, license_status, original_license_date",
+      "dbpr_sync_key, slug, business_name, qualifying_agent_name, license_number, license_type, city, license_status, original_license_date",
     )
     .not("license_number", "is", null)
     .order("original_license_date", { ascending: false, nullsFirst: false })
@@ -662,7 +664,7 @@ function RecentlyAdded({
             return (
               <li key={row.dbpr_sync_key} className="border-b border-gray-200">
                 <Link
-                  href={`/contractor/${contractorSlug(row)}`}
+                  href={`/contractor/${row.slug}`}
                   className={`group flex items-baseline justify-between gap-6 bg-paper-raised px-6 py-[18px] transition-colors hover:bg-gold-pale max-[1000px]:flex-col max-[1000px]:gap-1 ${FOCUS_RING_PAPER}`}
                 >
                   <span className="flex items-baseline gap-3">

@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { contractorSlug } from "@/lib/contractor-slug";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { DATA_AS_OF } from "@/lib/registry-stats";
 import {
@@ -253,7 +252,7 @@ function ContractorRow({
   return (
     <li className="border-b border-gray-200">
       <Link
-        href={`/contractor/${contractorSlug(row)}`}
+        href={`/contractor/${row.slug}`}
         className={`grid grid-cols-[1fr_200px_160px_100px] items-center gap-6 px-4 py-5 transition-colors max-[1000px]:grid-cols-1 max-[1000px]:gap-2 ${FOCUS_RING_PAPER} ${
           featured
             ? "bg-gradient-to-b from-[#fbf6e3] to-paper hover:bg-gold-pale"

@@ -119,10 +119,11 @@ export function parseQuery(raw: string | undefined): ParsedQuery {
 
 /** The columns a result card needs. Selected explicitly — never `*`. */
 const RESULT_COLUMNS =
-  "dbpr_sync_key, business_name, qualifying_agent_name, license_number, license_type, city, county_code, zip, license_status, claim_tier";
+  "dbpr_sync_key, slug, business_name, qualifying_agent_name, license_number, license_type, city, county_code, zip, license_status, claim_tier";
 
 export interface ContractorResult {
   dbpr_sync_key: string;
+  slug: string;
   business_name: string | null;
   qualifying_agent_name: string;
   license_number: string | null;
