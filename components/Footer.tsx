@@ -50,7 +50,6 @@ const FOOTER_COLUMNS = [
       { href: "/counties", label: "All Counties" },
       { href: "/types", label: "License Types" },
       { href: "/cities", label: "Top Cities" },
-      { href: "/updated", label: "Recently Updated" },
     ],
   },
   {

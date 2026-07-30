@@ -233,7 +233,7 @@ export default function NotFound() {
                 <p className="mt-2 text-note leading-[1.6] text-gray-700">
                   If you believe this page should exist,{" "}
                   <Link
-                    href="/contact"
+                    href="/about"
                     className={`font-semibold text-navy underline ${FOCUS_RING_PAPER}`}
                   >
                     let us know

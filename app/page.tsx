@@ -674,7 +674,6 @@ function RecentlyAdded({
           })}
         </ul>
 
-        <ViewAllLink href="/updated">View all recent additions</ViewAllLink>
       </div>
     </section>
   );

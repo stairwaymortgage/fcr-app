@@ -1010,7 +1010,7 @@ export default async function ContractorProfilePage({
                 update your contact information. Free, takes 5 minutes.
               </p>
               <Link
-                href={`/contractors/claim?slug=${contractor.slug}`}
+                href="/contractors"
                 className={`inline-block border border-navy px-[18px] py-[9px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-navy transition-colors hover:bg-navy hover:text-paper ${FOCUS_RING_PAPER}`}
               >
                 Claim Profile →
