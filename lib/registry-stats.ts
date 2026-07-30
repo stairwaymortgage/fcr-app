@@ -11,46 +11,56 @@
  * They are constants only because there is no data layer yet.
  *
  * ---------------------------------------------------------------------------
- * CONTRACTOR_COUNT IS DISPUTED AND HELD FOR JIM. DO NOT SILENTLY "FIX" IT.
+ * THE FRAMING IS SETTLED: THESE ARE "RECORDS", NEVER "ACTIVE LICENCES".
  *
- * 266,312 is the row count of the DBPR CONSTRUCTIONLICENSE_1 extract, and it
- * is what every mockup and the Build Brief use. Auditing the extract for the
- * initial import showed it overstates "licensed contractors" by roughly 2x:
+ * Resolved 2026-07-30, replacing the hold that previously sat here. The earlier
+ * note estimated ~126,571 "active" licences from the raw extract; measured
+ * against the imported table that arithmetic does not survive, and the honest
+ * description of what the directory contains is every record DBPR publishes.
  *
- *   266,312  rows in the extract
- *  -125,355  rows with no licence number at all
- *  - 22,602  rows registered out of state (GA, TX, AL, NC, ...)
- *   ~126,571 rows with both a licence number and an expiration date
- *
- * The defensible figure for "active Florida contractor licences" is therefore
- * closer to 126,000. Changing public copy is Jim's call, not a build decision,
- * so the number here is deliberately left at the audited-but-unchanged value.
- * When he rules, edit this one constant.
+ * Any copy that pairs CONTRACTOR_COUNT with the word "active" is a factual
+ * error, not a wording preference. See the constant's own docblock for the full
+ * set of measured figures and the one number that would justify "active"
+ * (119,330, and only via a live query).
  * ---------------------------------------------------------------------------
  */
 
 /**
- * Rows in the current DBPR extract. See the caveat above before changing.
+ * Contractor RECORDS in the registry — the verified row count of the
+ * contractors table, not a count of active licences.
  *
- * THE HOMEPAGE HERO AND AUTHORITY BAND BOTH RENDER THIS CONSTANT, DELIBERATELY.
- * Wiring either to a live `count(*)` was considered and rejected on 2026-07-30:
- * the live table holds 266,305 rows (seven fewer than this figure — the dedupe
- * on dbpr_sync_key before upsert), so a live count would publish 266,305 on the
- * front page as fact while the Header beside it still read 266,312. Worse, it
- * would silently commit the site to the overstated figure that is currently
- * awaiting Jim's ruling, by making it look measured rather than inherited.
+ * RESOLVED 2026-07-30. This was held pending a decision on public framing; the
+ * ruling is that the site describes these as "records", which is what they are.
+ * Every surface that renders this number must use records/total wording. None
+ * may call it "active" — see the numbers below for why that would be false.
  *
- * Every public surface therefore reads from here and nowhere else, so the whole
- * site moves together on one edit. Do not "improve" one of them into a live
- * query — mixing the two is what produces two different totals on one page.
+ * 266,305, NOT 266,312. The mockups and the Build Brief say 266,312, which is
+ * the row count of the DBPR extract as delivered. Seven of those rows were
+ * duplicate dbpr_sync_key values, removed by the dedupe in 6611f88 before
+ * upsert, so the table holds 266,305. "Total records in the registry" is a
+ * claim about our table, and 266,305 is that number. Verified against the live
+ * project on 2026-07-30.
  *
- * For reference, the four candidate figures as of the 2026-07-29 import:
- *   266,312  this constant — the extract as delivered, used by every mockup
- *   266,305  rows actually in the contractors table after dedupe
- *   265,804  rows with license_status = 'Current'
- *   122,225  rows with BOTH a licence number and an expiration date
+ * WHAT "ACTIVE" WOULD HAVE TO MEAN, all measured 2026-07-30:
+ *   266,305  rows in the table                      <- this constant
+ *   265,804  license_status = 'Current'             99.8% — status alone is
+ *                                                   not a meaningful filter
+ *   140,957  rows with a licence number
+ *   122,225  rows with an expiration date
+ *   119,330  'Current' AND expiration_date >= today <- the defensible
+ *                                                   "active licence" figure
+ *
+ * Note the trap: by STATUS almost every row is 'Current', so "active-status"
+ * reads as ~266k, not ~126k. The number that actually falls by half is the one
+ * that requires an unexpired expiration date. If a genuine active count is ever
+ * published, it is 119,330 and it needs a live query, not a constant — it goes
+ * stale every day as licences expire.
+ *
+ * Every public surface reads from here and nowhere else, so the whole site
+ * moves together on one edit. Do not "improve" one of them into a live query;
+ * mixing the two is what produces two different totals on one page.
  */
-export const CONTRACTOR_COUNT = 266312;
+export const CONTRACTOR_COUNT = 266305;
 
 /**
  * "Data as of …" — Header's statsTimestamp and Footer's lastSyncDate.

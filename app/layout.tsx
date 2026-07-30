@@ -41,10 +41,16 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
 });
 
+/**
+ * "records", not "active licenses". This is the site-wide default description
+ * and it made the same false claim the homepage hero did — see
+ * lib/registry-stats.ts. It is the string search engines quote, so it is the
+ * last place the error should survive.
+ */
 export const metadata: Metadata = {
   title: "Florida Contractor Registry",
   description:
-    "A searchable registry of active Florida contractor licenses, sourced weekly from the Florida DBPR public extract.",
+    "A searchable registry of Florida contractor records, sourced weekly from the Florida DBPR public extract.",
 };
 
 export default function RootLayout({

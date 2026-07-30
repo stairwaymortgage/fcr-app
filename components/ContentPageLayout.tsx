@@ -323,9 +323,12 @@ function RightRail() {
         <h3 className="mb-3 font-serif text-lg font-semibold leading-[1.25] tracking-[-0.01em] text-navy">
           Find a <em className="italic">contractor</em>
         </h3>
+        {/* "records", not "active licenses" — this rail renders on all 12
+            content and legal pages, so the same false claim the homepage hero
+            carried was live on every one of them. See lib/registry-stats.ts. */}
         <p className="mb-4 text-note leading-[1.55] text-gray-700">
-          Search {contractorCountLabel()} active Florida contractor licenses by
-          name, license number, city, or county.
+          Search {contractorCountLabel()} Florida contractor records by name,
+          license number, city, or county.
         </p>
         <Link
           href="/"

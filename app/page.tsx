@@ -31,7 +31,7 @@ import { createClient } from "@/lib/supabase/server";
  *     contractors and is blocked from leads and claims.
  *   - Queries are issued together in one Promise.all rather than awaited in
  *     sequence, so the page costs roughly one round trip's latency rather than
- *     the sum of all nineteen.
+ *     the sum of all twenty.
  */
 
 /**
@@ -41,7 +41,7 @@ import { createClient } from "@/lib/supabase/server";
  * ⚠ THIS CURRENTLY HAS NO EFFECT. `next build` reports / as ƒ (Dynamic), not
  * ○ (Static): lib/supabase/server.ts calls cookies(), and reading cookies opts
  * the whole route out of static rendering, which takes `revalidate` with it.
- * Every visit therefore re-runs all nineteen queries below — measured at ~1.25s
+ * Every visit therefore re-runs all twenty queries below — measured at ~1.25s
  * per request against the live project, against a §09 LCP budget of 2.0s.
  *
  * The declaration is left in place because it is the correct intent and becomes
@@ -191,6 +191,39 @@ async function getFeaturedTypes(db: Db) {
 }
 
 /**
+ * Licences that are genuinely active right now — live count.
+ *
+ * THE PREDICATE IS 'Current' AND NOT YET EXPIRED, AND BOTH HALVES ARE LOAD-
+ * BEARING. Status alone does not mean active: 265,804 of the 266,305 rows are
+ * license_status = 'Current' (99.8%), because DBPR leaves the status field
+ * 'Current' on records that carry no expiration date at all. A tile reading
+ * "265,804 Active Licenses" beside a total of 266,305 would be the same
+ * overclaim this page just removed, wearing a different label.
+ *
+ * Adding the expiration test is what makes the number mean something:
+ *
+ *   265,804  'Current'
+ *   122,225  has an expiration_date
+ *   119,330  'Current' AND expiration_date >= today   <- this query
+ *
+ * LIVE, NOT A CONSTANT, because it decreases every day as licences lapse. That
+ * is the whole reason it is honest, and the reason it must never be frozen into
+ * lib/registry-stats.ts the way the record total is.
+ *
+ * The date is computed per request rather than pinned, so "active" always means
+ * active as of now.
+ */
+async function getActiveLicenseCount(db: Db): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10);
+  const { count } = await db
+    .from("contractors")
+    .select("*", { count: "exact", head: true })
+    .eq("license_status", "Current")
+    .gte("expiration_date", today);
+  return count ?? 0;
+}
+
+/**
  * Most recently LICENSED contractors — newest original_license_date first.
  *
  * ORDERED BY original_license_date, NOT updated_at, AND THE DIFFERENCE MATTERS.
@@ -329,37 +362,13 @@ function ViewAllLink({ href, children }: { href: string; children: string }) {
  * and the Header above — see the note on that constant. All three move together
  * or none of them do.
  *
- * ===========================================================================
- * ⚠ BLOCKED ON JIM — DO NOT DEPLOY PUBLICLY UNTIL THE LEDE IS RESOLVED.
- *
- * The lede reads "All 266,312 active contractor licenses". The word "active"
- * is false. 266,312 is the total row count of the DBPR extract; it is not a
- * count of active licences and never was:
- *
- *     266,312   the extract as delivered (this constant, every mockup)
- *     266,305   rows actually in the table after dedupe
- *     265,804   rows with license_status = 'Current'
- *     122,225   rows with BOTH a licence number and an expiration date
- *
- * The last figure is the defensible reading of "active Florida contractor
- * licence", and the hero currently overstates it by more than 2x. On a site
- * whose entire pitch is accuracy of public records, that is the one claim it
- * cannot get wrong, and the authority band repeats it under the label "Active
- * Licenses".
- *
- * Three resolutions, all Jim's call, none of them a build decision:
- *   1. "266,312 contractor records"     — honest reframe, keeps the big number
- *   2. "122,225 active licenses"        — defensible, halves the headline
- *   3. his own framing
- *
- * NOTE FOR WHOEVER BRIEFS HIM: the figure circulated earlier as the "defensible
- * active count" was ~126,571. That was an estimate made against the raw extract
- * before import. Measured against the imported table on 2026-07-30 the number
- * is 122,225. Quote 122,225, not 126,571.
- *
- * Resolving this means editing lib/registry-stats.ts and the two words of copy
- * below — nothing structural. Committing the page is fine; shipping it is not.
- * ===========================================================================
+ * THE LEDE SAYS "RECORDS", AND THAT WORDING IS LOAD-BEARING. Resolved
+ * 2026-07-30: it previously read "All 266,312 active contractor licenses",
+ * which was false twice over — the number was the extract's row count rather
+ * than the table's, and only 119,330 rows are an unexpired 'Current' licence.
+ * "Records" is what the directory actually holds. Do not reintroduce "active"
+ * here or in the authority band; see lib/registry-stats.ts for the measured
+ * figures behind that.
  */
 function Hero() {
   return (
@@ -372,16 +381,12 @@ function Hero() {
           in Florida.
         </h1>
 
-        {/* =================================================================
-            ⚠ BLOCKED ON JIM — "active" is false. 266,312 is the total record
-            count; ~122k are active-status (see the docblock above for all four
-            candidate figures). DO NOT DEPLOY PUBLICLY, and do not put this page
-            on /preview or any Jim-facing URL, until Jim rules the framing.
-            ================================================================= */}
+        {/* "records", not "licenses" — the count includes rows that are not an
+            active licence. Changing this one word makes the page false. */}
         <p className="mb-11 max-w-[660px] text-[19px] leading-[1.55] tracking-[-0.005em] text-gray-700">
-          All {contractorCountLabel()} active contractor licenses from the
-          Florida DBPR — searchable by name, business, license number, or
-          location. Verify before you sign.
+          All {contractorCountLabel()} Florida contractor records from the DBPR —
+          searchable by name, business, license number, or location. Verify
+          before you sign.
         </p>
 
         {/* Second search entry point on the page; the Header carries the other.
@@ -427,15 +432,32 @@ function Hero() {
  * happens to also show four numbers: navy background, gold 38px serif, white
  * mono labels, no borders, no cards.
  *
- * ALL FOUR VALUES ARE CONSTANTS, INCLUDING THE TWO THAT COULD BE QUERIED.
- * COUNTY_COUNT and LICENSE_TYPE_COUNT match the live tables exactly (67 and 29,
- * verified 2026-07-30), so querying them would buy nothing and would make this
- * band a mix of live and constant figures — the thing that lets two different
- * totals appear on one page.
+ * FIVE TILES, NOT THE MOCKUP'S FOUR. The mockup's first tile is labelled
+ * "Active Licenses" over the total record count, which is simply wrong about
+ * its own number. Rather than relabel and lose the fact, the band now states
+ * both figures plainly:
+ *
+ *   Contractor Records  266,305   every row we hold        (constant)
+ *   Active Licenses     119,330   'Current' and unexpired  (live query)
+ *
+ * Those two numbers together are the honest version of the single number the
+ * mockup tried to show, and the gap between them is the entire reason the
+ * earlier copy was false.
+ *
+ * MIXED CONSTANT AND LIVE, DELIBERATELY, WHICH IS A DEPARTURE. The rule
+ * elsewhere on this page is that a figure is either constant or live but never
+ * both in one place, so that two totals cannot disagree. These two cannot
+ * disagree — they answer different questions, and only one of them is stable
+ * enough to freeze. The active count MUST be live: it falls every day as
+ * licences lapse, so a constant would be wrong by tomorrow.
+ *
+ * COUNTY_COUNT and LICENSE_TYPE_COUNT stay constant; they match the live tables
+ * exactly (67 and 29, verified 2026-07-30), so querying them would buy nothing.
  */
-function AuthorityBand() {
+function AuthorityBand({ activeLicenses }: { activeLicenses: number }) {
   const stats = [
-    { value: contractorCountLabel(), label: "Active Licenses" },
+    { value: contractorCountLabel(), label: "Contractor Records" },
+    { value: activeLicenses.toLocaleString("en-US"), label: "Active Licenses" },
     { value: String(COUNTY_COUNT), label: "Florida Counties" },
     { value: String(LICENSE_TYPE_COUNT), label: "License Types" },
     { value: "Weekly", label: "DBPR Data Refresh" },
@@ -443,7 +465,7 @@ function AuthorityBand() {
 
   return (
     <section className="bg-navy px-8 py-8">
-      <dl className="mx-auto grid max-w-shell grid-cols-4 gap-10 max-[1000px]:grid-cols-2 max-[1000px]:gap-8">
+      <dl className="mx-auto grid max-w-shell grid-cols-5 gap-10 max-[1000px]:grid-cols-2 max-[1000px]:gap-8">
         {stats.map(({ value, label }) => (
           // dd before dt in the DOM would read "266,312: Active Licenses"
           // backwards to a screen reader; dt first with order-* for the visual
@@ -570,8 +592,11 @@ function BrowseTypes({
               <span className="mb-2 block font-serif text-[19px] font-semibold leading-[1.3] tracking-wordmark text-ink">
                 {name}
               </span>
+              {/* "records", not "active licenses" — same correction as the
+                  hero. These are all rows of that licence type, not a count of
+                  currently-valid ones. */}
               <span className="block text-ui text-gray-500">
-                {count.toLocaleString("en-US")} active licenses
+                {count.toLocaleString("en-US")} records
               </span>
             </Link>
           ))}
@@ -763,11 +788,12 @@ export default async function Home() {
 
   // One await, not three. Each of these fans out into its own concurrent count
   // queries, so the whole page costs roughly the slowest single query rather
-  // than the sum of nineteen.
-  const [counties, types, recentlyAdded] = await Promise.all([
+  // than the sum of twenty.
+  const [counties, types, recentlyAdded, activeLicenses] = await Promise.all([
     getFeaturedCounties(db),
     getFeaturedTypes(db),
     getRecentlyAdded(db),
+    getActiveLicenseCount(db),
   ]);
 
   return (
@@ -778,7 +804,7 @@ export default async function Home() {
           CONTRACTOR_COUNT — the same constant the hero and band read. */}
       <main>
         <Hero />
-        <AuthorityBand />
+        <AuthorityBand activeLicenses={activeLicenses} />
         <BrowseCounties counties={counties} />
         <BrowseTypes types={types} />
         <RecentlyAdded contractors={recentlyAdded} />
