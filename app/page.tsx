@@ -585,7 +585,7 @@ function BrowseTypes({
           {types.map(({ code, name, count }) => (
             <Link
               key={code}
-              href={`/type/${typeSlug(name)}`}
+              href={`/type/${code.toLowerCase()}`}
               className={`border border-gray-200 bg-paper px-7 py-[26px] transition-colors hover:border-gold hover:bg-paper-raised ${FOCUS_RING_PAPER}`}
             >
               <span className="mb-2.5 block font-mono text-micro font-semibold tracking-label text-gold">
@@ -610,21 +610,6 @@ function BrowseTypes({
       </div>
     </section>
   );
-}
-
-/**
- * /type/[slug] URLs are the type NAME slugified, per the mockup
- * (/type/certified-general-contractor), not the code.
- *
- * Local to this file rather than in lib/: unlike contractor slugs, nothing else
- * builds one yet. It moves to lib/ when /type/[slug] is built in Week 3 and
- * needs to resolve them.
- */
-function typeSlug(typeName: string): string {
-  return typeName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 /**

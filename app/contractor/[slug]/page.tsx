@@ -186,12 +186,14 @@ function Breadcrumb({
   countySlug,
   city,
   typeName,
+  typeCode,
   name,
 }: {
   countyName: string | null;
   countySlug: string | null;
   city: string | null;
   typeName: string | null;
+  typeCode: string | null;
   name: string;
 }) {
   const crumbs = [
@@ -202,11 +204,8 @@ function Breadcrumb({
     city
       ? { href: `/search?q=${encodeURIComponent(city)}`, label: formatBusinessName(city) }
       : null,
-    typeName
-      ? {
-          href: `/type/${typeName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`,
-          label: `${typeName}s`,
-        }
+    typeName && typeCode
+      ? { href: `/type/${typeCode.toLowerCase()}`, label: `${typeName}s` }
       : null,
   ].filter(Boolean) as { href: string; label: string }[];
 
@@ -858,6 +857,7 @@ export default async function ContractorProfilePage({
         countySlug={countySlug}
         city={contractor.city}
         typeName={typeName}
+        typeCode={contractor.license_type}
         name={name}
       />
 

@@ -622,10 +622,7 @@ export default async function SearchPage({
               {licenseTypes.map((type) => (
                 <Link
                   key={type.type_code}
-                  href={`/type/${type.type_name
-                    .toLowerCase()
-                    .replace(/[^a-z0-9]+/g, "-")
-                    .replace(/^-+|-+$/g, "")}`}
+                  href={`/type/${type.type_code.toLowerCase()}`}
                   className={`flex flex-col gap-2 border border-gray-200 bg-paper-raised px-6 py-[22px] transition-colors hover:border-gold hover:bg-gold-pale ${FOCUS_RING_PAPER}`}
                 >
                   <span className="font-mono text-label font-semibold uppercase tracking-label text-gold">
