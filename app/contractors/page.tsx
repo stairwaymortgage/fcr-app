@@ -78,6 +78,46 @@ export default function ForContractorsPage() {
         </li>
       </ul>
 
+      <h2 id="update">Updating your information</h2>
+      <p>
+        Two different things can be wrong on a profile, and they are fixed in two
+        different places.
+      </p>
+      <ul>
+        <li>
+          <strong>The licence data itself</strong> &mdash; status, expiration date,
+          licence type, the address DBPR holds. We republish the state&rsquo;s
+          weekly extract rather than maintain our own copy, so a correction has to
+          be made with DBPR through their licensee portal. It appears here at the
+          next weekly sync.
+        </li>
+        <li>
+          <strong>Everything else</strong> &mdash; your description, logo, photo,
+          website and direct contact details. These become editable once you claim
+          the profile, which is what is being built.
+        </li>
+      </ul>
+
+      <h2 id="website">Getting a website</h2>
+      <p>
+        A separate service for contractors who want a simple site of their own is
+        planned, but it does not exist yet and is not part of claiming. Claiming
+        your profile is free and independent of it; nothing here requires you to
+        buy anything.
+      </p>
+
+      <h2 id="resources">Contractor resources</h2>
+      <p>
+        Guides written for contractors &mdash; on the licensing rules, what
+        homeowners are told to check, and how the public record is compiled &mdash;
+        are still to come. In the meantime the homeowner-facing pages are the same
+        material from the other side, and they are worth reading if you want to
+        know what a prospective client is being advised to ask you:{" "}
+        <Link href="/verify">how to verify a license</Link>,{" "}
+        <Link href="/hiring-checklist">the hiring checklist</Link>, and{" "}
+        <Link href="/sources">where our data comes from</Link>.
+      </p>
+
       <h2>What it costs</h2>
       <p>
         Claiming a profile is free and always will be. A separate optional

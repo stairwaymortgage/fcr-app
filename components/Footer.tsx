@@ -65,9 +65,9 @@ const FOOTER_COLUMNS = [
     heading: "For Contractors",
     links: [
       { href: "/contractors", label: "Claim Your Profile" },
-      { href: "/contractors/edit", label: "Update Information" },
-      { href: "/contractors/website", label: "Get a Website" },
-      { href: "/contractors/resources", label: "Contractor Resources" },
+      { href: "/contractors#update", label: "Update Information" },
+      { href: "/contractors#website", label: "Get a Website" },
+      { href: "/contractors#resources", label: "Contractor Resources" },
     ],
   },
   {
@@ -97,7 +97,7 @@ function FooterColumn({
       </h2>
       <ul>
         {links.map(({ href, label }) => (
-          <li key={href} className="py-1 text-ui">
+          <li key={label} className="py-1 text-ui">
             <Link
               href={href}
               className={`text-white/65 transition-colors hover:text-gold-light ${FOCUS_RING_NAVY}`}
