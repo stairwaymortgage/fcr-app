@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { SMS_CONSENT_TEXT } from "@/lib/consent";
 import ContentPageLayout, {
   LegalBanner,
   SectionHeading,
@@ -69,18 +70,15 @@ export default function SmsTermsPage() {
 
       <SectionHeading num={3}>Verbatim consent language</SectionHeading>
       <p>The consent language that appears on the inquiry form is:</p>
+      {/*
+        Rendered from the SMS_CONSENT_TEXT constant, not retyped. The same
+        constant is the checkbox label on the diagnostic capture form and the
+        value written to leads.sms_consent_text. Publishing a retyped copy here
+        would let this page drift from what visitors actually agreed to, which
+        is precisely what makes the stored record worthless as evidence.
+      */}
       <div className="border-l-4 border-l-gold bg-gray-50 px-6 py-5">
-        <p className="mb-0">
-          &ldquo;I understand that a member of Florida Contractor
-          Registry&rsquo;s advisory team will reach out by phone, email, or text
-          to discuss my situation. By checking this box and providing my phone
-          number, I expressly consent to receive recurring text messages from
-          Olga&rsquo;s Friends LLC at the number provided, including messages sent
-          using an automatic telephone dialing system or pre-recorded voice.
-          Consent is not a condition of any purchase. Message frequency varies.
-          Message and data rates may apply. Reply STOP to opt out at any time.
-          Reply HELP for help. See our SMS Terms and Privacy Policy.&rdquo;
-        </p>
+        <p className="mb-0">&ldquo;{SMS_CONSENT_TEXT}&rdquo;</p>
       </div>
 
       <SectionHeading num={4}>Message frequency</SectionHeading>
