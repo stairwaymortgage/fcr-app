@@ -30,16 +30,19 @@ import type { Answers } from "@/lib/personas";
 const BASE = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
 
-/** Field ids fetched from the live location on 2026-07-31. */
+/**
+ * Field ids fetched from the live location on 2026-07-31.
+ *
+ * budget, timeline, insurance and contact_preference are deliberately ABSENT.
+ * They existed in GHL but no diagnostic question produces them, so they could
+ * only ever have been blank. Jim is deleting them from the location; listing
+ * them here would just be a promise the wizard cannot keep.
+ */
 export const GHL_FIELDS = {
-  persona: "9a6Llc5Z8W2u8WLVQz0Q", // contact.persona            SINGLE_OPTIONS
-  project_type: "j8lB8DnU9KgGqsLQ521g", // contact.project_type       SINGLE_OPTIONS
-  budget: "Njz2DiWcNvC2A13EbiZI", // contact.budget            SINGLE_OPTIONS
-  timeline: "JXDKxZMlZFyHIDktMLhD", // contact.timeline          SINGLE_OPTIONS
+  persona: "9a6Llc5Z8W2u8WLVQz0Q", // contact.persona           SINGLE_OPTIONS
+  project_type: "j8lB8DnU9KgGqsLQ521g", // contact.project_type      SINGLE_OPTIONS
   financing_needed: "iG7oxSEUDyT1zT9t6NVK", // contact.financing_needed  SINGLE_OPTIONS
   selling_plans: "lC7UjhEwKmImENMzKU0P", // contact.selling_plans     SINGLE_OPTIONS
-  insurance: "szSVA7enKMJMiZyOzbYp", // contact.insurance         SINGLE_OPTIONS
-  contact_preference: "KFquDRKg3E118jyWNnts", // contact.contact_preference SINGLE_OPTIONS
   sms_consent_text: "30mfXR8PIp8bzb7gqxtK", // contact.sms_consent_text  LARGE_TEXT
   consent_timestamp: "UTVNYL0y69rSrorO7WVq", // contact.consent_timestamp DATE
   fcr_source: "NAF3nVcw9UX7cQh2rdFv", // contact.fcr_source        TEXT
@@ -57,54 +60,91 @@ export const GHL_PIPELINE = {
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * ⚠ THE DROPDOWN VALUES DO NOT LINE UP, AND FOUR FIELDS HAVE NO SOURCE.
+ * DROPDOWN VALUES ARE VALIDATED AGAINST GHL'S LIVE OPTIONS, NOT A HARD-CODED MAP.
  *
- * The GHL fields were built against a different question set — seller-intent
- * personas and a kitchen/bathroom/addition project type. The diagnostic asks
- * different questions and writes different values. Not one option matches.
+ * WHY THIS ISN'T A TRANSLATION TABLE. The original design had a static
+ * persona→GHL map. It was the wrong shape for two reasons:
  *
- *   GHL contact.persona      speed_to_sale | maximize_value | distress_urgent |
- *                            inherited_property | tired_landlord | relocating |
- *                            downsizing | first_time_seller
- *   diagnostic writes        urgent_owner | quality_seeker | tax_distressed |
- *                            fix_and_flip | new_to_town | long_term_owner |
- *                            senior_equity
+ *   1. It made "which value goes where" a code deploy. Routing lives in GHL
+ *      automations by design (Row 126) so it can change in the UI; the value
+ *      feeding those automations must be able to change there too.
+ *   2. It had to be kept in lockstep with the GHL UI by hand. A map that
+ *      disagrees with the location's actual options fails silently — see below.
  *
- * And contact.budget, contact.timeline, contact.insurance and
- * contact.contact_preference have NO corresponding question at all.
+ * SO THE RULE IS: send the diagnostic's own value if — and only if — the field
+ * in GHL actually offers it. Options are read from the location and cached
+ * briefly. Realign a dropdown in the GHL UI and leads start populating within
+ * the cache TTL, with no deploy.
  *
- * TRANSLATING THEM IS A BUSINESS DECISION, NOT A CODE ONE. Whether
- * "long_term_owner" is GHL's "maximize_value" or something else determines
- * which automation fires and therefore which entity gets the lead. Guessing it
- * here would be inventing revenue routing.
+ * WHY VALIDATE AT ALL — GHL ACCEPTS OUT-OF-RANGE OPTIONS SILENTLY. Posting
+ * "long_term_owner" to a field whose options are speed_to_sale, maximize_value,
+ * … returns HTTP 201 and stores it verbatim. It looks like success. The field
+ * reads as populated over the API while the contact card shows blank and every
+ * workflow condition — which can only be built from the field's DEFINED options
+ * — matches nothing. An unmatched value is therefore recorded in `unmapped` and
+ * omitted, so the gap is loud instead of invisible.
  *
- * So the map below is EXPLICIT and currently EMPTY. Unmapped values are
- * OMITTED from the payload and logged — never sent raw. That matters because
- * GHL accepts invalid options silently: sending "long_term_owner" would look
- * like success while every automation filtering on it never matched.
- *
- * Fill this in, or realign the GHL options to the diagnostic's values, and the
- * fields start populating with no other change.
+ * AS OF 2026-07-31 the four dropdowns still carry a seller-intent taxonomy
+ * (persona: speed_to_sale | maximize_value | distress_urgent | …) that shares
+ * no value with the diagnostic (urgent_owner | quality_seeker | …), so all four
+ * are omitted on every lead. Realigning them in the GHL UI is the fix; the API
+ * token has no customFields write scope, so it cannot be done from here.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-const PERSONA_TO_GHL: Partial<Record<string, string>> = {
-  // urgent_owner:    "…",
-  // quality_seeker:  "…",
-  // tax_distressed:  "…",
-  // fix_and_flip:    "…",
-  // new_to_town:     "…",
-  // long_term_owner: "…",
-  // senior_equity:   "…",
-};
 
-/** Q1 → contact.project_type. Same situation as the persona map. */
-const Q1_TO_PROJECT_TYPE: Partial<Record<string, string>> = {};
+/** Diagnostic value → GHL field, for the fields whose value is a dropdown. */
+const OPTION_FIELDS = [
+  { key: "persona", id: GHL_FIELDS.persona },
+  { key: "project_type", id: GHL_FIELDS.project_type },
+  { key: "financing_needed", id: GHL_FIELDS.financing_needed },
+  { key: "selling_plans", id: GHL_FIELDS.selling_plans },
+] as const;
 
-/** Q3 → contact.financing_needed. GHL: yes_financing | paying_cash | not_sure_financing */
-const Q3_TO_FINANCING: Partial<Record<string, string>> = {};
+/**
+ * Cached option sets, keyed by field id.
+ *
+ * Short TTL on purpose: this exists to spare one HTTP call per lead, not to be
+ * a source of truth. A GHL UI edit must take effect on its own, and 5 minutes
+ * is the longest we should make someone wonder whether it worked. Per-process,
+ * so serverless instances expire independently — which is fine, because a stale
+ * instance omits a field rather than sending a wrong one.
+ */
+const OPTIONS_TTL_MS = 5 * 60 * 1000;
+let optionsCache: { at: number; byFieldId: Map<string, Set<string>> } | null = null;
 
-/** Q4 → contact.selling_plans. GHL: selling_after | staying_put | might_sell */
-const Q4_TO_SELLING: Partial<Record<string, string>> = {};
+async function fetchFieldOptions(
+  token: string,
+  locationId: string,
+): Promise<Map<string, Set<string>> | null> {
+  if (optionsCache && Date.now() - optionsCache.at < OPTIONS_TTL_MS) {
+    return optionsCache.byFieldId;
+  }
+  try {
+    const res = await fetch(`${BASE}/locations/${locationId}/customFields`, {
+      headers: headers(token),
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const byFieldId = new Map<string, Set<string>>();
+    for (const f of body?.customFields ?? []) {
+      // GET returns picklistOptions; the create/update API calls the same thing
+      // `options`. Accept either rather than depend on which one this version
+      // of the API happens to send.
+      const raw: unknown[] = f?.picklistOptions ?? f?.options ?? [];
+      const values = raw
+        .map((o) =>
+          typeof o === "string" ? o : ((o as Record<string, string>)?.value ?? null),
+        )
+        .filter((v): v is string => typeof v === "string");
+      if (values.length > 0) byFieldId.set(f.id, new Set(values));
+    }
+    optionsCache = { at: Date.now(), byFieldId };
+    return byFieldId;
+  } catch {
+    // Never fatal. The caller omits dropdown fields and still delivers the lead.
+    return null;
+  }
+}
 
 export interface GhlLead {
   name: string;
@@ -180,28 +220,45 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
     if (value != null && value !== "") customFields.push({ id, value });
   };
 
-  const mapped = (
-    label: string,
-    table: Partial<Record<string, string>>,
-    raw: string | undefined,
-  ): string | undefined => {
-    if (!raw) return undefined;
-    const out = table[raw];
-    if (!out) {
-      unmapped.push(`${label}=${raw}`);
-      return undefined;
-    }
-    return out;
+  /**
+   * The four dropdown fields. Each carries the diagnostic's own value if GHL
+   * offers it as an option, and is omitted-and-recorded otherwise.
+   *
+   * The reason for the rejection is kept in `unmapped` — "not an option in GHL"
+   * versus "GHL unreachable" versus "visitor skipped the question" are three
+   * different problems and the log should not make them look like one.
+   */
+  const values: Record<string, string | undefined> = {
+    persona: lead.personaSlug,
+    project_type: lead.answers[1],
+    financing_needed: lead.answers[3],
+    selling_plans: lead.answers[4],
   };
 
-  put(GHL_FIELDS.persona, mapped("persona", PERSONA_TO_GHL, lead.personaSlug));
-  put(GHL_FIELDS.project_type, mapped("project_type", Q1_TO_PROJECT_TYPE, lead.answers[1]));
-  put(GHL_FIELDS.financing_needed, mapped("financing_needed", Q3_TO_FINANCING, lead.answers[3]));
-  put(GHL_FIELDS.selling_plans, mapped("selling_plans", Q4_TO_SELLING, lead.answers[4]));
+  const liveOptions = await fetchFieldOptions(token, locationId);
 
-  // budget / timeline / insurance / contact_preference have no source question.
-  unmapped.push("budget=(no question)", "timeline=(no question)",
-                "insurance=(no question)", "contact_preference=(no question)");
+  for (const field of OPTION_FIELDS) {
+    const value = values[field.key];
+    if (!value) continue; // Not answered. Nothing to say about it.
+    if (!liveOptions) {
+      unmapped.push(`${field.key}=${value} (could not read GHL options)`);
+      continue;
+    }
+    const allowed = liveOptions.get(field.id);
+    if (!allowed) {
+      unmapped.push(`${field.key}=${value} (field missing or has no options in GHL)`);
+      continue;
+    }
+    if (!allowed.has(value)) {
+      // Array.from, not spread: tsconfig sets no target, so downlevel iteration
+      // of a Set is a compile error. Same fix as lib/format-name.ts.
+      unmapped.push(
+        `${field.key}=${value} (not an option; GHL has ${Array.from(allowed).join("|")})`,
+      );
+      continue;
+    }
+    put(field.id, value);
+  }
 
   // Free-text fields carry their real values — no dropdown to mismatch.
   put(GHL_FIELDS.fcr_source, lead.referringUrl ?? "diagnostic_flow");
@@ -263,6 +320,36 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
 
     if (!oppRes.ok) {
       const body = await oppRes.text();
+
+      /**
+       * A REPEAT VISITOR IS NOT A FAILURE.
+       *
+       * Run the diagnostic twice and the contact upserts happily, but GHL
+       * refuses the second opportunity:
+       *
+       *   400 {"code":"OPPORTUNITY_NO_DUPLICATE",
+       *        "message":"Can not create duplicate opportunity for the contact.",
+       *        "meta":{"existingId":"…"}}
+       *
+       * Caught in testing on 2026-07-31. Treated as failure this would be
+       * actively harmful: the contact's answers HAVE been updated, yet the lead
+       * would be marked ghl_synced = false and sit in a retry queue that can
+       * never drain, because every retry hits the same 400. Worse, the real
+       * delivery problems would be buried under it.
+       *
+       * The existing opportunity id comes back in meta, so we adopt it and
+       * report success — which is the truth: this contact is in the pipeline.
+       */
+      let existingId: string | undefined;
+      try {
+        existingId = JSON.parse(body)?.meta?.existingId;
+      } catch {
+        // Non-JSON error body. Falls through to the failure path below.
+      }
+      if (existingId) {
+        return { ok: true, contactId, opportunityId: existingId, unmapped };
+      }
+
       // The contact landed; only the opportunity failed. Report the contact id
       // so a retry can attach the opportunity rather than duplicating the
       // contact.
