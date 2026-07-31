@@ -101,7 +101,13 @@ const OPTION_FIELDS = [
 ] as const;
 
 /**
- * Cached option sets, keyed by field id.
+ * Cached field definitions, keyed by field id.
+ *
+ * THE FIELD'S TYPE DECIDES WHETHER ITS VALUE IS CHECKED. A dropdown only
+ * accepts values it defines, so those are validated. A text field accepts
+ * anything, so its value is sent as-is. Reading the type from GHL rather than
+ * assuming it means either choice works in the UI — convert Persona from a
+ * dropdown to plain text and delivery keeps working, with no deploy.
  *
  * Short TTL on purpose: this exists to spare one HTTP call per lead, not to be
  * a source of truth. A GHL UI edit must take effect on its own, and 5 minutes
@@ -109,15 +115,24 @@ const OPTION_FIELDS = [
  * so serverless instances expire independently — which is fine, because a stale
  * instance omits a field rather than sending a wrong one.
  */
-const OPTIONS_TTL_MS = 5 * 60 * 1000;
-let optionsCache: { at: number; byFieldId: Map<string, Set<string>> } | null = null;
+interface GhlFieldDef {
+  dataType: string;
+  /** Empty for free-text field types. */
+  options: Set<string>;
+}
 
-async function fetchFieldOptions(
+/** GHL types whose value must be one of the field's defined options. */
+const CONSTRAINED_TYPES = new Set(["SINGLE_OPTIONS", "MULTIPLE_OPTIONS", "RADIO", "CHECKBOX"]);
+
+const OPTIONS_TTL_MS = 5 * 60 * 1000;
+let fieldCache: { at: number; byFieldId: Map<string, GhlFieldDef> } | null = null;
+
+async function fetchFieldDefs(
   token: string,
   locationId: string,
-): Promise<Map<string, Set<string>> | null> {
-  if (optionsCache && Date.now() - optionsCache.at < OPTIONS_TTL_MS) {
-    return optionsCache.byFieldId;
+): Promise<Map<string, GhlFieldDef> | null> {
+  if (fieldCache && Date.now() - fieldCache.at < OPTIONS_TTL_MS) {
+    return fieldCache.byFieldId;
   }
   try {
     const res = await fetch(`${BASE}/locations/${locationId}/customFields`, {
@@ -125,7 +140,7 @@ async function fetchFieldOptions(
     });
     if (!res.ok) return null;
     const body = await res.json();
-    const byFieldId = new Map<string, Set<string>>();
+    const byFieldId = new Map<string, GhlFieldDef>();
     for (const f of body?.customFields ?? []) {
       // GET returns picklistOptions; the create/update API calls the same thing
       // `options`. Accept either rather than depend on which one this version
@@ -136,12 +151,12 @@ async function fetchFieldOptions(
           typeof o === "string" ? o : ((o as Record<string, string>)?.value ?? null),
         )
         .filter((v): v is string => typeof v === "string");
-      if (values.length > 0) byFieldId.set(f.id, new Set(values));
+      byFieldId.set(f.id, { dataType: String(f?.dataType ?? ""), options: new Set(values) });
     }
-    optionsCache = { at: Date.now(), byFieldId };
+    fieldCache = { at: Date.now(), byFieldId };
     return byFieldId;
   } catch {
-    // Never fatal. The caller omits dropdown fields and still delivers the lead.
+    // Never fatal. The caller omits these fields and still delivers the lead.
     return null;
   }
 }
@@ -235,25 +250,33 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
     selling_plans: lead.answers[4],
   };
 
-  const liveOptions = await fetchFieldOptions(token, locationId);
+  const defs = await fetchFieldDefs(token, locationId);
 
   for (const field of OPTION_FIELDS) {
     const value = values[field.key];
     if (!value) continue; // Not answered. Nothing to say about it.
-    if (!liveOptions) {
-      unmapped.push(`${field.key}=${value} (could not read GHL options)`);
+    if (!defs) {
+      unmapped.push(`${field.key}=${value} (could not read GHL field definitions)`);
       continue;
     }
-    const allowed = liveOptions.get(field.id);
-    if (!allowed) {
-      unmapped.push(`${field.key}=${value} (field missing or has no options in GHL)`);
+    const def = defs.get(field.id);
+    if (!def) {
+      unmapped.push(`${field.key}=${value} (no such field in GHL — deleted?)`);
       continue;
     }
-    if (!allowed.has(value)) {
+
+    // A free-text field accepts anything, so there is nothing to check.
+    if (!CONSTRAINED_TYPES.has(def.dataType)) {
+      put(field.id, value);
+      continue;
+    }
+
+    if (!def.options.has(value)) {
       // Array.from, not spread: tsconfig sets no target, so downlevel iteration
       // of a Set is a compile error. Same fix as lib/format-name.ts.
       unmapped.push(
-        `${field.key}=${value} (not an option; GHL has ${Array.from(allowed).join("|")})`,
+        `${field.key}=${value} (not an option of ${def.dataType}; ` +
+          `GHL has ${Array.from(def.options).join("|") || "none"})`,
       );
       continue;
     }
