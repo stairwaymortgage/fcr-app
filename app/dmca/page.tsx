@@ -12,22 +12,31 @@ import ContentPageLayout, {
  * Attorney text, transcribed verbatim. See app/privacy/page.tsx for the rule.
  *
  * ===========================================================================
- * ⚠ FLAGGED FOR JIM — THE DMCA AGENT PHONE NUMBER IS A PLACEHOLDER.
+ * ⚠ INCOMPLETE FOR SAFE HARBOUR — EMAIL ONLY, NO AGENT PHONE NUMBER.
  *
- * The mockup itself reads "(954) [PHONE]" — the attorney left the number to be
- * filled in, and it is reproduced here unchanged rather than invented. It is
- * rendered visibly as [PHONE] so it cannot ship unnoticed.
+ * The mockup read "(954) [PHONE]": the attorney left the number to be filled
+ * in. Rather than invent one — a fabricated agent number earns no safe harbour
+ * and is worse than none — the line was removed on 2026-07-31 and the listing
+ * is email-based.
  *
- * This is not cosmetic. 17 U.S.C. § 512(c)(2) requires a service provider to
- * make the designated agent's contact information — name, address, phone number
- * and email — available on its site AND registered with the Copyright Office to
- * qualify for the safe harbour. An incomplete agent listing puts the safe
- * harbour at risk, which is the entire reason this page exists.
+ * WHAT THIS DOES AND DOES NOT ACHIEVE. It removes a visibly unfinished
+ * placeholder from a live public page. It does NOT make the listing compliant.
+ * 17 U.S.C. § 512(c)(2) enumerates what a designated-agent listing must
+ * contain — "the name, address, phone number, and electronic mail address of
+ * the agent" — so the phone number is required by statute, not optional when an
+ * email is present. Removing it moved the gap from visible to invisible; it did
+ * not close it.
  *
- * Two things are needed before launch, neither of which is a build task:
- *   1. the real phone number, replacing [PHONE] below, and
- *   2. registration of the designated agent with the U.S. Copyright Office
- *      (dmca.copyright.gov) — the on-site listing alone is not sufficient.
+ * TWO THINGS REMAIN, BOTH LEGAL TASKS RATHER THAN BUILD TASKS:
+ *   1. A real phone number for the designated agent, restored to the block
+ *      below and included in the registration.
+ *   2. Registration of the designated agent with the U.S. Copyright Office at
+ *      dmca.copyright.gov. The on-site listing alone never qualified — § 512(c)
+ *      conditions the safe harbour on the agent being registered with the
+ *      Office, and the registration form itself requires a phone number.
+ *
+ * Until both are done, assume the § 512(c) safe harbour is unavailable and that
+ * takedown notices must be handled on their merits rather than under it.
  * ===========================================================================
  */
 
@@ -52,8 +61,10 @@ export default function DmcaPage() {
     >
       <LegalBanner label="Designated DMCA Agent">
         Olga&rsquo;s Friends LLC &middot; Attn: DMCA Agent &middot; 1520 E Sunrise
-        Blvd, Fort Lauderdale, FL 33304 &middot;
-        dmca@floridacontractorregistry.com &middot; (954) [PHONE]
+        Blvd, Fort Lauderdale, FL 33304
+        <br />
+        Notices should be sent by email to{" "}
+        <strong>dmca@floridacontractorregistry.com</strong>.
       </LegalBanner>
 
       <SectionHeading num={1}>Our policy</SectionHeading>
@@ -69,9 +80,11 @@ export default function DmcaPage() {
 
       <SectionHeading num={2}>Designated DMCA agent</SectionHeading>
       <p>
-        Notices of claimed copyright infringement should be sent to our Designated
-        DMCA Agent at the address shown above. Notices sent to any other address
-        may not receive a timely response.
+        Notices of claimed copyright infringement should be sent by email to{" "}
+        <strong>dmca@floridacontractorregistry.com</strong>, or by mail to the
+        Designated DMCA Agent at the address shown above. Email is the fastest
+        route and is the preferred method. Notices sent to any other address may
+        not receive a timely response.
       </p>
 
       <SectionHeading num={3}>
