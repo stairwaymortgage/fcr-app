@@ -22,6 +22,7 @@ import {
   isFeatured,
   yearOf,
 } from "@/lib/contractor-profile";
+import { endSentence } from "@/lib/format-name";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { DATA_AS_OF } from "@/lib/registry-stats";
 import { createClient } from "@/lib/supabase/server";
@@ -701,7 +702,7 @@ function InquiryForm({
     return (
       <SideBlock title="Message sent">
         <p className="text-note leading-[1.6] text-gray-700">
-          Your message has been sent to {name}. They&rsquo;ll see it the next time
+          Your message has been sent to {endSentence(name)} They&rsquo;ll see it the next time
           they check their inquiries.
         </p>
         <p className="mt-3 text-xs leading-[1.6] text-gray-500">

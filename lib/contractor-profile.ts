@@ -218,34 +218,11 @@ export function displayName(contractor: ContractorProfile): string {
 }
 
 /**
- * "ACERO, CRISTIAN F" -> "Cristian F. Acero".
- *
- * DBPR stores individuals surname-first, uppercase. Printing that verbatim next
- * to editorial typography looks like a data dump, and the mockup shows
- * "Cristian F. Acero". Business names are left alone — only a value containing
- * a comma is treated as a personal name, which is the DBPR convention.
+ * Name casing lives in lib/format-name.ts — one implementation for the whole
+ * app. These aliases keep the existing call sites in this page working while
+ * pointing at it.
  */
-export function formatPersonName(raw: string): string {
-  const titleCase = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/\b[a-z]/g, (c) => c.toUpperCase())
-      .replace(/\b([A-Z])\b/g, "$1.");
-
-  const parts = raw.split(",");
-  if (parts.length !== 2) return titleCase(raw);
-  const [last, first] = parts.map((p) => p.trim());
-  return `${titleCase(first)} ${titleCase(last)}`;
-}
-
-/** "ACECA CONSTRUCTION, INC." -> "Aceca Construction, Inc." */
-export function formatBusinessName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/\b[a-z]/g, (c) => c.toUpperCase())
-    .replace(/\b(Llc|L\.l\.c\.|Inc|Corp|Co|Pa|Pl)\b/g, (m) => m.toUpperCase())
-    .replace(/\bLlc\b/gi, "LLC");
-}
+export { businessName as formatBusinessName, personName as formatPersonName } from "@/lib/format-name";
 
 /**
  * "2012-09-24" -> "September 24, 2012".

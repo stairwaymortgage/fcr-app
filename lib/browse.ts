@@ -371,21 +371,13 @@ export async function getTypeCountsInCounty(
  * FORMATTING
  * ========================================================================== */
 
-/** "ACECA CONSTRUCTION, INC." -> "Aceca Construction, Inc." */
-export function titleCase(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/\b[a-z]/g, (c) => c.toUpperCase())
-    .replace(/\b(Llc|Inc|Corp|Pa|Pl|Ii|Iii)\b/g, (m) => m.toUpperCase());
-}
-
-/** "ACERO, CRISTIAN F" -> "Cristian F. Acero". */
-export function personName(raw: string): string {
-  const parts = raw.split(",");
-  if (parts.length !== 2) return titleCase(raw);
-  const [last, first] = parts.map((p) => p.trim());
-  return `${titleCase(first).replace(/\b([A-Z])\b/g, "$1.")} ${titleCase(last)}`;
-}
+/**
+ * Name casing lives in lib/format-name.ts — one implementation for the whole
+ * app. `titleCase` here had drifted from the profile page's copy: it omitted
+ * "Co", so "SMITH & SONS CO." cased differently on a browse card than on a
+ * profile.
+ */
+export { businessName as titleCase, personName } from "@/lib/format-name";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
