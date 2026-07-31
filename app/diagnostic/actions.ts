@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { SMS_CONSENT_TEXT } from "@/lib/consent";
+import { pushLeadToGhl } from "@/lib/ghl";
 import { determineRouting, routesToJson } from "@/lib/lead-routing";
 import { QUESTIONS, detectPersona, type Answers } from "@/lib/personas";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -145,32 +146,150 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
       }
     : { sms_consent: false, sms_consent_text: null, sms_consent_timestamp: null };
 
-  const admin = createAdminClient();
-  const { error } = await admin.from("leads").insert({
-    name: data.name,
-    email: data.email,
-    phone,
-    zip: data.zip || null,
-    // Set here, never accepted from input — it is a CHECK-constrained column.
-    lead_source: "diagnostic_flow",
-    referring_url: data.referringSlug ? `/contractor/${data.referringSlug}` : null,
-    diagnostic_answers: answers,
-    primary_persona: persona.slug,
-    routed_entities: routesToJson(routes),
-    ...consent,
-  });
+  const referringUrl = data.referringSlug ? `/contractor/${data.referringSlug}` : null;
 
-  if (error) {
+  /**
+   * THE TABLE IS WRITTEN FIRST AND IS THE SOURCE OF TRUTH.
+   *
+   * GoHighLevel is delivery, not storage. The lead is committed to Postgres
+   * before any network call to GHL, so a GHL outage, a rate limit or a schema
+   * change there cannot cost us the lead. Only a Postgres failure is reported
+   * to the visitor as a failure.
+   */
+  const admin = createAdminClient();
+  const { data: inserted, error } = await admin
+    .from("leads")
+    .insert({
+      name: data.name,
+      email: data.email,
+      phone,
+      zip: data.zip || null,
+      // Set here, never accepted from input — it is a CHECK-constrained column.
+      lead_source: "diagnostic_flow",
+      referring_url: referringUrl,
+      diagnostic_answers: answers,
+      primary_persona: persona.slug,
+      routed_entities: routesToJson(routes),
+      ...consent,
+    })
+    .select("id")
+    .single();
+
+  if (error || !inserted) {
     // Logged loudly. A dropped lead is the funnel's whole product.
     console.error("[diagnostic] LEAD INSERT FAILED — lead lost", {
-      code: error.code,
-      message: error.message,
+      code: error?.code,
+      message: error?.message,
       persona: persona.slug,
     });
     return {
       ok: false,
       error: "Something went wrong on our side. Please try again in a moment.",
     };
+  }
+
+  /**
+   * GHL push. Deliberately AFTER the commit and deliberately unable to fail the
+   * request: whatever happens here, the visitor already has a saved lead and is
+   * told so.
+   *
+   * ghl_synced stays false on any failure, which is the retry queue —
+   * `WHERE ghl_synced = false`. ghl_last_error keeps the reason so a flapping
+   * integration is visible rather than just slow.
+   *
+   * NOTHING FROM routed_entities IS SENT. GHL receives the persona slug, the
+   * answers, contact details and consent; entity routing happens in a GHL
+   * automation keyed on the persona.
+   */
+  try {
+    const ghl = await pushLeadToGhl({
+      name: data.name,
+      email: data.email,
+      phone,
+      zip: data.zip || null,
+      personaSlug: persona.slug,
+      answers,
+      smsConsent: consent.sms_consent,
+      smsConsentText: consent.sms_consent_text,
+      smsConsentTimestamp: consent.sms_consent_timestamp,
+      referringUrl,
+    });
+
+    if (ghl.unmapped.length > 0) {
+      console.warn("[diagnostic] GHL fields omitted — no value mapping", {
+        leadId: inserted.id,
+        unmapped: ghl.unmapped,
+      });
+    }
+
+    /**
+     * THE RESULT OF THIS UPDATE IS CHECKED, not discarded.
+     *
+     * Caught by the live end-to-end test on 2026-07-31: the migration adding
+     * these columns had not been run, so every one of these UPDATEs failed with
+     * PGRST204 "Could not find the 'ghl_synced' column" — and because supabase-js
+     * returns errors instead of throwing, an ignored result made it invisible.
+     * The push had genuinely succeeded, the lead was genuinely saved, and the
+     * row still read as never-delivered. The retry queue would have re-pushed a
+     * lead that was already in GHL, forever.
+     *
+     * A failure here does NOT fail the request — the lead is committed and the
+     * contact is in GHL. It only has to be loud.
+     */
+    const { error: syncError } = await admin
+      .from("leads")
+      .update(
+        ghl.ok
+          ? {
+              ghl_synced: true,
+              ghl_contact_id: ghl.contactId ?? null,
+              ghl_opportunity_id: ghl.opportunityId ?? null,
+              ghl_synced_at: new Date().toISOString(),
+              ghl_last_error: null,
+            }
+          : {
+              ghl_synced: false,
+              ghl_contact_id: ghl.contactId ?? null,
+              ghl_last_error: ghl.error ?? "unknown",
+            },
+      )
+      .eq("id", inserted.id);
+
+    if (syncError) {
+      console.error("[diagnostic] GHL SYNC STATE NOT RECORDED — row will look undelivered", {
+        leadId: inserted.id,
+        ghlOk: ghl.ok,
+        ghlContactId: ghl.contactId,
+        code: syncError.code,
+        message: syncError.message,
+        hint: "db/migrations/20260731_leads_ghl_sync.sql not run?",
+      });
+    }
+
+    if (!ghl.ok) {
+      console.error("[diagnostic] GHL PUSH FAILED — lead is safe in Postgres, retry needed", {
+        leadId: inserted.id,
+        error: ghl.error,
+      });
+    }
+  } catch (err) {
+    // Belt and braces: pushLeadToGhl is written not to throw, but an unexpected
+    // throw here must still not turn a saved lead into a visitor-facing error.
+    console.error("[diagnostic] GHL push threw — lead is safe in Postgres", {
+      leadId: inserted.id,
+      error: String(err).slice(0, 300),
+    });
+    const { error: syncError } = await admin
+      .from("leads")
+      .update({ ghl_synced: false, ghl_last_error: String(err).slice(0, 500) })
+      .eq("id", inserted.id);
+    if (syncError) {
+      console.error("[diagnostic] GHL SYNC STATE NOT RECORDED after throw", {
+        leadId: inserted.id,
+        code: syncError.code,
+        message: syncError.message,
+      });
+    }
   }
 
   return { ok: true };
