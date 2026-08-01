@@ -67,8 +67,22 @@ export async function sendMagicLink(input: unknown): Promise<LoginResult> {
     return { ok: false, error: "Something went wrong on our side. Please try again." };
   }
 
+  /**
+   * `next` IS ALWAYS SET, EVEN WHEN THERE IS NOTHING TO PRESERVE.
+   *
+   * Not cosmetic. The email templates build the link by appending to
+   * {{ .RedirectTo }}, which is this URL:
+   *
+   *   {{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=magiclink
+   *
+   * That concatenation is only valid if this URL already carries a query
+   * string. Omitting `next` when it is empty would emit ".../auth/callback&
+   * token_hash=…" — one malformed link, sent only to visitors who arrived at
+   * /login directly rather than by being bounced there. The common path would
+   * keep working, which is what would make it hard to spot.
+   */
   const callback = new URL("/auth/callback", origin);
-  if (next) callback.searchParams.set("next", next);
+  callback.searchParams.set("next", next || "/dashboard");
 
   const supabase = createClient();
   const { error } = await supabase.auth.signInWithOtp({

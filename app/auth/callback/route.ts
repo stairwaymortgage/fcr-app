@@ -21,6 +21,37 @@ import { createClient } from "@/lib/supabase/server";
  * lives in its own module so it can be unit-tested — inside this handler the
  * security-critical branch was unreachable without a valid single-use code.
  * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THIS FILE DEPENDS ON A SETTING THAT DOES NOT LIVE IN THIS REPO.
+ *
+ * The Supabase email templates (Auth → Email Templates) must send token_hash,
+ * NOT the default {{ .ConfirmationURL }}:
+ *
+ *   Confirm signup:  {{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=signup
+ *   Magic Link:      {{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=magiclink
+ *
+ * {{ .ConfirmationURL }} routes the click through Supabase's /auth/v1/verify,
+ * which consumes the token and hands us ?code= — the PKCE flow. PKCE pairs
+ * that code with a verifier cookie held ONLY in the browser that requested the
+ * link, so opening the email anywhere else fails.
+ *
+ * OBSERVED IN PRODUCTION 2026-08-01, and it is worth being precise about what
+ * it looks like, because it does not look like a bug. Supabase accepted the
+ * click and set email_confirmed_at; the address really was confirmed. Only the
+ * session failed:
+ *
+ *   [auth] code exchange failed — "PKCE code verifier not found in storage"
+ *
+ * The token is spent by then, so every retry of that same link reports
+ * "Email link is invalid or has expired" — which reads like an expiry problem
+ * and sends you looking at link lifetimes, the wrong place entirely.
+ *
+ * The token_hash branch below exists precisely to avoid this and is checked
+ * first. It cannot help while the template keeps sending ?code=. If sign-in
+ * starts failing for people reading email on a different device, CHECK THE
+ * TEMPLATES BEFORE CHANGING THIS FILE.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 
 
