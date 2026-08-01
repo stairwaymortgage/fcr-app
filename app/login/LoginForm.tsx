@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 
-import { sendMagicLink } from "./actions";
+import { sendLoginCode } from "./actions";
 
 /**
  * The email form. Client only because it needs pending state and an error
@@ -22,7 +22,7 @@ export default function LoginForm({ next }: { next?: string }) {
     setError(null);
 
     const email = String(formData.get("email") ?? "");
-    const result = await sendMagicLink({
+    const result = await sendLoginCode({
       email,
       next: next ?? "",
       website: String(formData.get("website") ?? ""),
@@ -35,7 +35,9 @@ export default function LoginForm({ next }: { next?: string }) {
     }
     // The address is passed on only so the next page can display it. The link
     // itself is bound to the email, not to this navigation.
-    router.push(`/login/sent?email=${encodeURIComponent(email)}`);
+    const params = new URLSearchParams({ email });
+    if (next) params.set("next", next);
+    router.push(`/login/sent?${params.toString()}`);
   }
 
   return (
@@ -76,7 +78,7 @@ export default function LoginForm({ next }: { next?: string }) {
         disabled={pending}
         className={`bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
       >
-        {pending ? "Sending…" : "Send sign-in link →"}
+        {pending ? "Sending…" : "Email me a sign-in code →"}
       </button>
     </form>
   );

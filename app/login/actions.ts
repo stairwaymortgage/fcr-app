@@ -28,6 +28,11 @@ import { createClient } from "@/lib/supabase/server";
  * user by RLS, and admin comes from app_metadata which this path cannot set.
  */
 
+const VerifySchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  token: z.string().trim().max(32),
+});
+
 const Schema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   /** Where to land after the link is clicked. Validated in the callback. */
@@ -38,7 +43,31 @@ const Schema = z.object({
 
 export type LoginResult = { ok: boolean; error?: string };
 
-export async function sendMagicLink(input: unknown): Promise<LoginResult> {
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WE SIGN IN WITH A CODE, NOT A CLICKABLE LINK.
+ *
+ * A one-time link is consumed by whoever fetches it FIRST, and that is often
+ * not the person. Corporate mail scanners and Outlook Safe Links fetch every
+ * URL in an inbound message to check it, which spends the token before the
+ * recipient has seen the email. They then click a valid link and are told it
+ * has already been used — which is true, and completely opaque.
+ *
+ * Observed on this project, 2026-08-01: repeated "already been used" on links
+ * that had never been clicked. Copy-pasting the URL by hand worked, which is
+ * the signature of pre-fetch rather than expiry.
+ *
+ * A code cannot be spent by fetching anything. There is no URL in the email at
+ * all, which also disposes of the other two link problems for free: long links
+ * broken across lines by mail clients, and Safe Links rewriting the host.
+ *
+ * signInWithOtp sends BOTH shapes — which one arrives is decided entirely by
+ * the email template. The templates must therefore contain {{ .Token }} and NO
+ * link: leave a link in and a scanner still burns the token, and the code in
+ * the same message dies with it.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export async function sendLoginCode(input: unknown): Promise<LoginResult> {
   const parsed = Schema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "That doesn't look like a valid email address." };
@@ -99,6 +128,70 @@ export async function sendMagicLink(input: unknown): Promise<LoginResult> {
       status: error.status,
       message: error.message,
     });
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Exchange the emailed code for a session.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * type: "email" COVERS BOTH SHAPES — VERIFIED, NOT ASSUMED.
+ *
+ * A returning contractor's code comes from the Magic Link template and a
+ * brand-new one's from Confirm Signup, and the links those templates carry
+ * declare type=magiclink and type=signup respectively. It would be reasonable
+ * to expect verifyOtp to need the matching type, and /auth/callback does have
+ * to make that distinction for token_hash.
+ *
+ * It does not apply here. Probed against this project on 2026-08-01: a code
+ * from EITHER template verifies with type "email".
+ *
+ *   existing user -> otp 98568613 (link said type=magiclink) -> "email" OK
+ *   new user      -> otp 38986825 (link said type=signup)    -> "email" OK
+ *
+ * So there is one path rather than a try-this-then-that chain whose second
+ * branch would only ever run for first-time contractors — the people least
+ * able to report what went wrong.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * THE CODE LENGTH IS NOT SIX. This project issues EIGHT digits. Nothing here
+ * hard-codes a length: the digits are extracted and passed on, and Supabase
+ * decides. A maxLength of 6 in the UI would silently truncate every real code,
+ * and the failure would look like "the code doesn't work".
+ */
+export async function verifyLoginCode(input: unknown): Promise<LoginResult> {
+  const parsed = VerifySchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "Enter the code from your email." };
+  }
+
+  const email = parsed.data.email;
+  // Digits only: people paste codes with spaces, and some mail clients insert
+  // a non-breaking space or a soft hyphen mid-number.
+  const token = parsed.data.token.replace(/\D/g, "");
+  if (token.length < 4 || token.length > 12) {
+    return { ok: false, error: "That code doesn't look right. It's the number in your email." };
+  }
+
+  const supabase = createClient();
+  const { data, error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
+
+  if (error || !data.session) {
+    /**
+     * Deliberately one message for every failure — wrong code, expired code,
+     * no such address. Distinguishing them turns this into an oracle: an
+     * attacker could separate "wrong code" from "no account" and enumerate
+     * which contractors have signed up, and the contractor list is public.
+     *
+     * Logged with the real reason so a genuine outage is still diagnosable.
+     */
+    console.warn("[login] code verification failed", {
+      status: error?.status,
+      message: error?.message,
+    });
+    return { ok: false, error: "That code is wrong or has expired. Request a new one." };
   }
 
   return { ok: true };

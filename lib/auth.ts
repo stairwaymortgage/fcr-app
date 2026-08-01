@@ -1,6 +1,6 @@
 import "server-only";
 
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
@@ -64,15 +64,18 @@ export async function requireUser(next?: string): Promise<User> {
 /**
  * Require an admin.
  *
- * A non-admin who is signed in gets 404, not 403 — /admin/* should not confirm
- * its own existence to a contractor who guessed the URL.
+ * EVERY non-admin gets 404 — signed in or not. Not 403, and not a login
+ * redirect: both of those confirm the route exists, and "/admin/claims wants a
+ * login" tells an attacker precisely what to phish for. A 404 is the same
+ * answer a nonexistent path gives.
+ *
+ * That means a SIGNED-OUT ADMIN also gets 404 and has to visit /login first.
+ * Deliberate, and matched by the same rule in middleware.ts — the two must
+ * agree, or the middleware 404s a page that would have redirected.
  */
 export async function requireAdmin(): Promise<User> {
   const user = await getUser();
-  if (!user) redirect("/login?next=%2Fadmin");
-  if (!isAdmin(user)) {
-    const { notFound } = await import("next/navigation");
-    notFound();
-  }
+  // notFound() is typed `never`, so this narrows `user` for the return below.
+  if (!user || !isAdmin(user)) notFound();
   return user;
 }

@@ -126,22 +126,13 @@ CREATE INDEX IF NOT EXISTS idx_claims_claimant
 -- since that is the field someone edits when they think they are approving.
 
 COMMENT ON TABLE public.claims IS
-'Contractor identity verification attempts. ID photos auto-delete 90 days post-decision (PURGE JOB NOT BUILT YET).
-
-HOW TO REVIEW: docs/claim-review-runbook.md in the repo.
-
-Queue:  SELECT * FROM claims WHERE status = ''pending'' ORDER BY created_at;
-Photo:  Storage -> id-photos -> folder named for claimant_user_id -> click the file.
-        (The dashboard authenticates as service role. No signed URL needed.)
-Check:  name on the ID vs contractors.qualifying_agent_name.
-
-APPROVING TAKES TWO STATEMENTS. The second one is what actually grants access:
-  UPDATE claims SET status=''approved'', reviewed_at=now(), reviewed_by_user_id=''<you>'' WHERE id=''<claim>'';
-  UPDATE contractors SET claimed_by_user_id=''<claimant_user_id>'', claimed_at=now() WHERE dbpr_sync_key=''<key>'';
-Run only the first and the claim reads approved while the contractor sees an unclaimed profile and no inquiries.';
+-- SUPERSEDED by 20260801_claim_decision_functions.sql, which replaced the
+-- two-statement approval with approve_claim(). The current text points at
+-- /admin/claims; kept here only so this file still runs standalone.
+'Contractor identity verification attempts. See docs/claim-review-runbook.md.';
 
 COMMENT ON COLUMN public.claims.status IS
-'pending | approved | rejected. Setting this to approved GRANTS NOTHING on its own - contractors.claimed_by_user_id is what every RLS policy tests. See the table comment.';
+'pending | approved | rejected. DO NOT set by hand - use approve_claim()/reject_claim().';
 
 COMMENT ON COLUMN public.claims.claimant_user_id IS
 'auth.users id. Also the FOLDER NAME holding the ID photo in the private id-photos bucket.';

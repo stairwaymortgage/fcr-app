@@ -102,27 +102,37 @@ export async function middleware(request: NextRequest) {
      */
     /^\/contractor\/[a-z0-9-]+\/claim$/.test(path);
 
+  /**
+   * ADMIN PATHS 404 FOR EVERYONE WHO IS NOT AN ADMIN — INCLUDING ANON.
+   *
+   * Contractor paths bounce to /login, because the visitor is someone we want
+   * to help sign in. /admin is different: a login redirect confirms the route
+   * exists, and "/admin/claims wants a login" tells an attacker exactly what to
+   * phish for. A 404 says nothing.
+   *
+   * THE COST, DELIBERATELY ACCEPTED: a signed-out admin gets a 404 rather than
+   * a login prompt, so they must visit /login first. With a handful of admins
+   * who know that, it is a fair trade for a route that does not announce
+   * itself. If admin headcount ever grows, revisit this and not the 404.
+   *
+   * Rewrite, not redirect — the URL stays put, so the response is
+   * indistinguishable from a path that was never a route.
+   */
+  if (needsAdmin) {
+    // app_metadata, never user_metadata: user_metadata is writable by the
+    // account itself. See lib/auth.ts and db/migrations/20260801_fix_is_admin.sql.
+    const role = (user?.app_metadata as Record<string, unknown> | null)?.role;
+    if (!user || role !== "admin") {
+      return NextResponse.rewrite(new URL("/not-found", request.url));
+    }
+  }
+
   if (needsUser && !user) {
     const login = new URL("/login", request.url);
     // Path plus query only — never the origin, so this cannot be reflected
     // back out as an absolute URL. The callback re-validates it regardless.
     login.searchParams.set("next", path + request.nextUrl.search);
     return NextResponse.redirect(login);
-  }
-
-  /**
-   * Admin is read from app_metadata, never user_metadata — user_metadata is
-   * writable by the account itself. See lib/auth.ts for the full reasoning and
-   * db/migrations/20260801_fix_is_admin.sql for the database side.
-   *
-   * Rewritten to the 404 rather than redirected: /admin should not confirm it
-   * exists to a signed-in contractor who guessed the URL.
-   */
-  if (needsAdmin && user) {
-    const role = (user.app_metadata as Record<string, unknown> | null)?.role;
-    if (role !== "admin") {
-      return NextResponse.rewrite(new URL("/not-found", request.url));
-    }
   }
 
   return response;

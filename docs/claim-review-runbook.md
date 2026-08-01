@@ -1,9 +1,44 @@
-# Reviewing a claim (manual, until the admin UI exists)
+# Reviewing a claim
 
-There is no admin UI yet. Review happens in the Supabase dashboard. Every step
-below is verified by `scripts/verify-claim-approval.mjs`.
+## → Use **/admin/claims**. That is the whole process.
+
+Sign in as an admin and open `/admin/claims`. Every pending claim is listed with
+the name on the claim beside `qualifying_agent_name` from DBPR, the ID photo
+already displayed (the page mints the short-lived signed URL for you), and
+**Approve** / **Reject** buttons. Rejecting takes a reason, which the contractor
+sees verbatim.
+
+You never need the SQL below, and you never need to generate a signed URL by
+hand.
+
+**Approve does both writes in one transaction** — `approve_claim()` marks the
+claim and links `contractors.claimed_by_user_id`. The half-approved state this
+document used to warn about is no longer reachable from the UI.
+
+### Getting admin access
+
+`app_metadata` cannot be set from the client — that is what makes it
+trustworthy. Run once, in the SQL editor:
+
+```sql
+UPDATE auth.users
+   SET raw_app_meta_data = raw_app_meta_data || '{"role":"admin"}'::jsonb
+ WHERE email = 'jimb@nexamortgage.com';
+```
+
+Then **sign out and back in.** The claim lands on the next token refresh, not
+immediately. Until then `/admin/claims` returns 404 — which is also what a
+non-admin and a signed-out visitor get, deliberately, so the route never
+announces itself.
+
+Verified by `scripts/verify-admin-claims.mjs`.
 
 ---
+
+# Fallback: doing it by hand in Supabase
+
+Only needed if the app is down. Everything below is verified by
+`scripts/verify-claim-approval.mjs`.
 
 ## 1. See the pending queue
 

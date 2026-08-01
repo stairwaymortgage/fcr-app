@@ -1,0 +1,123 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { FOCUS_RING_PAPER } from "@/lib/focus";
+import { safeNext } from "@/lib/safe-next";
+
+import { sendLoginCode, verifyLoginCode } from "../actions";
+
+/**
+ * Code entry.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * NO maxLength ON THE INPUT, AND NO SIX-BOX SPLIT UI.
+ *
+ * This project issues EIGHT-digit codes, not the six most one-time-code UIs
+ * assume. A maxLength of 6 — or six separate single-character boxes, the
+ * fashionable treatment — would silently truncate every real code, and the
+ * contractor would see "that code is wrong" while looking straight at the
+ * right number. One field, generous limit, digits extracted on the server.
+ *
+ * inputMode="numeric" brings up the number pad on a phone, which is where
+ * contractors read their email. autoComplete="one-time-code" lets iOS and
+ * Android offer the code straight from the notification, so on the common path
+ * they never type it at all.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export default function CodeForm({ email, next }: { email: string; next?: string }) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resent, setResent] = useState(false);
+
+  async function onSubmit(formData: FormData) {
+    setPending(true);
+    setError(null);
+
+    const result = await verifyLoginCode({
+      email,
+      token: String(formData.get("token") ?? ""),
+    });
+
+    if (!result.ok) {
+      setPending(false);
+      setError(result.error ?? "That code didn't work. Request a new one.");
+      return;
+    }
+
+    /**
+     * verifyOtp wrote the session cookies from the Server Action. router.refresh
+     * makes the server re-render with them before navigating, so the
+     * destination does not render its signed-out state for a frame.
+     *
+     * safeNext is applied HERE TOO. It already guards the callback route, but
+     * `next` reaches this component through the query string, so it is
+     * attacker-supplied on this path as well and gets the same treatment.
+     */
+    router.refresh();
+    router.push(safeNext(next));
+  }
+
+  async function onResend() {
+    setResending(true);
+    setError(null);
+    await sendLoginCode({ email, next: next ?? "", website: "" });
+    setResending(false);
+    setResent(true);
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <form action={onSubmit} className="flex flex-col gap-4">
+        {error && (
+          <p
+            role="alert"
+            className="border-l-[3px] border-status-error bg-status-errorBg px-4 py-3 text-note text-status-error"
+          >
+            {error}
+          </p>
+        )}
+
+        <label className="flex flex-col gap-1.5">
+          <span className="font-mono text-label font-medium uppercase tracking-[0.08em] text-gray-500">
+            Sign-in code
+          </span>
+          <input
+            name="token"
+            type="text"
+            required
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            maxLength={12}
+            placeholder="Enter the code from your email"
+            className="w-full border border-gray-300 bg-white px-3.5 py-2.5 text-center font-mono text-[22px] tracking-[0.3em] text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10"
+          />
+        </label>
+
+        <button
+          type="submit"
+          disabled={pending}
+          className={`bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
+        >
+          {pending ? "Checking…" : "Sign in →"}
+        </button>
+      </form>
+
+      <div className="flex items-baseline gap-3 text-note text-gray-600">
+        <button
+          type="button"
+          onClick={onResend}
+          disabled={resending}
+          className="font-mono text-label uppercase tracking-label text-gold disabled:opacity-60"
+        >
+          {resending ? "Sending…" : "Send a new code"}
+        </button>
+        {resent && <span role="status">Sent — check your email again.</span>}
+      </div>
+    </div>
+  );
+}
