@@ -139,6 +139,85 @@ export const QUESTIONS: readonly Question[] = [
 export type Answers = Partial<Record<number, string>>;
 
 /* ========================================================================== *
+ * CAPTURE-STEP FIELDS
+ * ========================================================================== */
+
+/**
+ * Four data points GoHighLevel has fields for that the seven questions never
+ * produced: contact.budget, contact.timeline, contact.insurance and
+ * contact.contact_preference. Until now they could only ever be blank, because
+ * nothing on the site asked for them.
+ *
+ * THEY LIVE ON THE CAPTURE STEP, NOT AS NEW QUESTIONS. Three extra full-screen
+ * questions in a seven-question funnel is a real cost to completion; four
+ * compact selects beside name/email/phone is close to none, and the visitor is
+ * already committed by the time they reach that screen.
+ *
+ * SOURCING. The budget bands are verbatim from Eight_Personas.docx (Persona 1,
+ * Question 2 — "Under $15,000 / $15,000–$40,000 / $40,000–$100,000 / Over
+ * $100,000 / Not sure yet"). The timeline bands mirror the taxonomy already used
+ * by the GHL location's own contact.timeline_to_buy field, so the values read
+ * consistently against the rest of the CRM. The insurance and contact-preference
+ * options are NOT from any source document — no spec defines them. They are
+ * deliberately minimal and neutral; change the wording freely.
+ *
+ * Stored in leads.diagnostic_answers alongside the numbered answers, under these
+ * string keys. That is why no migration was needed: the column is jsonb.
+ */
+export interface CaptureField {
+  /** Key in diagnostic_answers, and the name of the form control. */
+  key: "budget" | "timeline" | "insurance" | "contact_preference";
+  label: string;
+  choices: readonly Choice[];
+}
+
+export const CAPTURE_FIELDS: readonly CaptureField[] = [
+  {
+    key: "budget",
+    label: "Estimated project cost",
+    choices: [
+      { value: "under_15k", label: "Under $15,000" },
+      { value: "15k_40k", label: "$15,000 – $40,000" },
+      { value: "40k_100k", label: "$40,000 – $100,000" },
+      { value: "over_100k", label: "Over $100,000" },
+      { value: "budget_not_sure", label: "Not sure yet" },
+    ],
+  },
+  {
+    key: "timeline",
+    label: "When do you want the work done",
+    choices: [
+      { value: "ready_now", label: "Ready now (0–30 days)" },
+      { value: "1_3_months", label: "1–3 months" },
+      { value: "3_6_months", label: "3–6 months" },
+      { value: "6_12_months", label: "6–12 months" },
+      { value: "just_exploring", label: "Just exploring" },
+    ],
+  },
+  {
+    key: "insurance",
+    label: "Homeowners insurance",
+    choices: [
+      { value: "insured", label: "Yes, currently insured" },
+      { value: "not_insured", label: "No, not currently insured" },
+      { value: "insurance_not_sure", label: "Not sure" },
+    ],
+  },
+  {
+    key: "contact_preference",
+    label: "Best way to reach you",
+    choices: [
+      { value: "phone", label: "Phone call" },
+      { value: "text", label: "Text message" },
+      { value: "email", label: "Email" },
+    ],
+  },
+] as const;
+
+/** Capture-step answers, keyed by CaptureField.key. */
+export type CaptureAnswers = Partial<Record<string, string>>;
+
+/* ========================================================================== *
  * PERSONAS
  * ========================================================================== */
 

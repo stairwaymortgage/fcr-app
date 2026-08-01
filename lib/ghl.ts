@@ -1,6 +1,11 @@
 import "server-only";
 
-import { QUESTIONS, type Answers } from "@/lib/personas";
+import {
+  CAPTURE_FIELDS,
+  QUESTIONS,
+  type Answers,
+  type CaptureAnswers,
+} from "@/lib/personas";
 
 /**
  * GoHighLevel push — LeadConnector API v2.
@@ -22,29 +27,25 @@ import { QUESTIONS, type Answers } from "@/lib/personas";
  *   - contact.sms_consent_text is LARGE_TEXT with no maxLength; a 582-character
  *     consent string round-tripped byte-identical.
  *   - GHL DISCARDS OUT-OF-RANGE SINGLE_OPTIONS VALUES AND REPORTS SUCCESS.
- *     Re-tested precisely on 2026-08-01: posting fix_and_flip, buying_to_flip,
- *     fast_capital and sell_different to the four dropdowns whose options do
- *     not include them returned HTTP 201, and reading the contact back showed
- *     0 of 4 present — not stored wrong, not stored at all.
+ *     Tested 2026-08-01: posting fix_and_flip, buying_to_flip, fast_capital and
+ *     sell_different to dropdowns whose options did not include them returned
+ *     HTTP 201, and reading the contact back showed 0 of 4 present — not stored
+ *     wrong, not stored at all. That is why the type check below exists.
  *
- *     THIS IS THE WHOLE PROBLEM, AND NO CHANGE HERE CAN SOLVE IT. A dropdown
- *     stores only what it defines. Sending the value anyway is not a workaround;
- *     it is the thing that was already happening and already failing. The four
- *     fields can be filled only by editing their options in the GHL UI — which
- *     this token cannot do (401 on both POST and PUT to /customFields).
+ *     RESOLVED for the four answer fields: they were recreated as TEXT in the
+ *     GHL UI, so there is no option list left to mismatch. The check stays,
+ *     because any of them could be turned back into a dropdown tomorrow.
+ *
+ *   - THE TOKEN CANNOT WRITE FIELD DEFINITIONS. 401 on both POST and PUT to
+ *     /locations/{id}/customFields. Fields must be created and edited by hand,
+ *     and RECREATING ONE MINTS A NEW ID — which silently breaks every write
+ *     until the id here is updated. It has happened once already.
  */
 
 const BASE = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
 
-/**
- * Field ids fetched from the live location on 2026-07-31.
- *
- * budget, timeline, insurance and contact_preference are deliberately ABSENT.
- * They existed in GHL but no diagnostic question produces them, so they could
- * only ever have been blank. Jim is deleting them from the location; listing
- * them here would just be a promise the wizard cannot keep.
- */
+/** All eleven field ids, each re-fetched live from the location on 2026-08-01. */
 export const GHL_FIELDS = {
   // Re-fetched 2026-08-01. THE FIRST FOUR IDS CHANGED — the dropdowns were
   // deleted and recreated as TEXT in the GHL UI, and GHL issues a new id for a
@@ -55,6 +56,13 @@ export const GHL_FIELDS = {
   project_type: "7rfjNN23l9CZ2LdFP57t", // contact.project_type      TEXT
   financing_needed: "2dGEECDlQt84teQzai5m", // contact.financing_needed  TEXT
   selling_plans: "O45AF81iMIF8mdCUjXAy", // contact.selling_plans     TEXT
+  // Capture-step selects. Re-fetched live 2026-08-01; all four TEXT. These sat
+  // empty for days not because of a key mismatch but because nothing on the site
+  // collected them — the wizard now does, on the capture step.
+  budget: "3WAzBxdy4Ts4Mgcdn3QU", // contact.budget            TEXT
+  timeline: "Ah6MVT1XTCw37GRv8oqD", // contact.timeline          TEXT
+  insurance: "mCUkevOATXGX7foHFTHP", // contact.insurance         TEXT
+  contact_preference: "wU4E639Sq5quETMLEBkZ", // contact.contact_preference TEXT
   sms_consent_text: "30mfXR8PIp8bzb7gqxtK", // contact.sms_consent_text  LARGE_TEXT
   consent_timestamp: "UTVNYL0y69rSrorO7WVq", // contact.consent_timestamp DATE
   fcr_source: "NAF3nVcw9UX7cQh2rdFv", // contact.fcr_source        TEXT
@@ -96,20 +104,22 @@ export const GHL_PIPELINE = {
  * field's type and its real option list, so the gap is loud instead of a blank
  * cell nobody can explain.
  *
- * AS OF 2026-07-31 the four dropdowns still carry a seller-intent taxonomy
- * (persona: speed_to_sale | maximize_value | distress_urgent | …) that shares
- * no value with the diagnostic (urgent_owner | quality_seeker | …), so all four
- * are omitted on every lead. Realigning them in the GHL UI is the fix; the API
- * token has no customFields write scope, so it cannot be done from here.
+ * AS OF 2026-08-01 all eight of these fields are TEXT, so every value is sent
+ * as-is and the option branch is dormant. It is kept because turning any of them
+ * back into a dropdown in the GHL UI would otherwise resume silent data loss.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-/** Diagnostic value → GHL field, for the fields whose value is a dropdown. */
+/** Every field whose value comes from the visitor's own answers. */
 const OPTION_FIELDS = [
   { key: "persona", id: GHL_FIELDS.persona },
   { key: "project_type", id: GHL_FIELDS.project_type },
   { key: "financing_needed", id: GHL_FIELDS.financing_needed },
   { key: "selling_plans", id: GHL_FIELDS.selling_plans },
+  { key: "budget", id: GHL_FIELDS.budget },
+  { key: "timeline", id: GHL_FIELDS.timeline },
+  { key: "insurance", id: GHL_FIELDS.insurance },
+  { key: "contact_preference", id: GHL_FIELDS.contact_preference },
 ] as const;
 
 /**
@@ -203,12 +213,20 @@ async function fetchFieldDefs(
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-/** `fcr-persona-quality_seeker`, `fcr-q1-own_renovating`, … */
-function buildTags(personaSlug: string, answers: Answers): string[] {
+/** `fcr-persona-quality_seeker`, `fcr-q1-own_renovating`, `fcr-budget-15k_40k`, … */
+function buildTags(
+  personaSlug: string,
+  answers: Answers,
+  captureFields: CaptureAnswers,
+): string[] {
   const tags = [`fcr-persona-${personaSlug}`];
   for (const q of QUESTIONS) {
     const value = answers[q.id];
     if (value) tags.push(`fcr-q${q.id}-${value}`);
+  }
+  for (const f of CAPTURE_FIELDS) {
+    const value = captureFields[f.key];
+    if (value) tags.push(`fcr-${f.key}-${value}`);
   }
   return tags;
 }
@@ -221,7 +239,11 @@ function buildTags(personaSlug: string, answers: Answers): string[] {
  * Labels come from QUESTIONS, the same definitions the wizard renders, so the
  * note says what the visitor actually saw.
  */
-function buildNote(personaSlug: string, answers: Answers): string {
+function buildNote(
+  personaSlug: string,
+  answers: Answers,
+  captureFields: CaptureAnswers,
+): string {
   const lines = [`Florida Contractor Registry — diagnostic`, ``, `Persona: ${personaSlug}`, ``];
   for (const q of QUESTIONS) {
     const value = answers[q.id];
@@ -229,6 +251,15 @@ function buildNote(personaSlug: string, answers: Answers): string {
     const choice = q.choices.find((c) => c.value === value);
     lines.push(`Q${q.id}. ${q.prompt}`);
     lines.push(`    ${choice?.label ?? value}   [${value}]`);
+  }
+  const captured = CAPTURE_FIELDS.filter((f) => captureFields[f.key]);
+  if (captured.length > 0) {
+    lines.push(``);
+    for (const f of captured) {
+      const value = captureFields[f.key]!;
+      const choice = f.choices.find((c) => c.value === value);
+      lines.push(`${f.label}: ${choice?.label ?? value}   [${value}]`);
+    }
   }
   return lines.join("\n");
 }
@@ -241,6 +272,8 @@ export interface GhlLead {
   zip: string | null;
   personaSlug: string;
   answers: Answers;
+  /** Capture-step selects: budget, timeline, insurance, contact_preference. */
+  captureFields: CaptureAnswers;
   smsConsent: boolean;
   smsConsentText: string | null;
   smsConsentTimestamp: string | null;
@@ -320,6 +353,10 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
     project_type: lead.answers[1],
     financing_needed: lead.answers[3],
     selling_plans: lead.answers[4],
+    budget: lead.captureFields.budget,
+    timeline: lead.captureFields.timeline,
+    insurance: lead.captureFields.insurance,
+    contact_preference: lead.captureFields.contact_preference,
   };
 
   const defs = await fetchFieldDefs(token, locationId);
@@ -382,7 +419,7 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
         postalCode: lead.zip ?? undefined,
         source: "Florida Contractor Registry — diagnostic",
         // The answers, in the one form GHL cannot reject. See buildTags above.
-        tags: buildTags(lead.personaSlug, lead.answers),
+        tags: buildTags(lead.personaSlug, lead.answers, lead.captureFields),
         customFields,
       }),
     });
@@ -412,7 +449,9 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
       const noteRes = await fetch(`${BASE}/contacts/${contactId}/notes`, {
         method: "POST",
         headers: headers(token),
-        body: JSON.stringify({ body: buildNote(lead.personaSlug, lead.answers) }),
+        body: JSON.stringify({
+          body: buildNote(lead.personaSlug, lead.answers, lead.captureFields),
+        }),
       });
       if (!noteRes.ok) {
         console.warn("[ghl] note not created", {

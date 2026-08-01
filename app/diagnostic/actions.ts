@@ -5,7 +5,13 @@ import { z } from "zod";
 import { SMS_CONSENT_TEXT } from "@/lib/consent";
 import { pushLeadToGhl } from "@/lib/ghl";
 import { determineRouting, routesToJson } from "@/lib/lead-routing";
-import { QUESTIONS, detectPersona, type Answers } from "@/lib/personas";
+import {
+  CAPTURE_FIELDS,
+  QUESTIONS,
+  detectPersona,
+  type Answers,
+  type CaptureAnswers,
+} from "@/lib/personas";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -66,6 +72,11 @@ const VALID_ANSWERS = new Map(
   QUESTIONS.map((q) => [q.id, new Set(q.choices.map((c) => c.value))]),
 );
 
+/** Same treatment for the capture-step selects — allowlisted, never trusted. */
+const VALID_CAPTURE = new Map(
+  CAPTURE_FIELDS.map((f) => [f.key as string, new Set(f.choices.map((c) => c.value))]),
+);
+
 const Schema = z.object({
   name: z.string().trim().min(2).max(100),
   email: z.string().trim().toLowerCase().email().max(254),
@@ -76,6 +87,8 @@ const Schema = z.object({
   website: z.string().max(0),
   answers: z.record(z.string(), z.string()),
   referringSlug: z.string().max(200).optional().or(z.literal("")),
+  /** Capture-step selects. Optional so an older cached client still submits. */
+  captureFields: z.record(z.string(), z.string()).optional(),
 });
 
 export type SubmitResult =
@@ -124,6 +137,30 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
     return { ok: false, error: "Please answer the first three questions." };
   }
 
+  /**
+   * Capture-step selects — budget, timeline, insurance, contact_preference.
+   *
+   * Allowlisted exactly like the questions: a Server Action is a public POST
+   * endpoint, so `required` on a <select> guarantees nothing. An unrecognised
+   * value is rejected rather than stored, because these land in GoHighLevel and
+   * the concierge acts on them during a call.
+   *
+   * They do NOT feed detectPersona — persona detection is defined over Q1–Q7
+   * only, and quietly widening its inputs would reroute existing leads.
+   */
+  const captureFields: CaptureAnswers = {};
+  for (const [key, value] of Object.entries(data.captureFields ?? {})) {
+    if (value === "") continue; // Not chosen. Stored as absent, not as blank.
+    if (!VALID_CAPTURE.get(key)?.has(value)) {
+      return {
+        ok: false,
+        error: "Some selections were not recognised. Please try again.",
+        fields: [key],
+      };
+    }
+    captureFields[key] = value;
+  }
+
   // Recomputed on the SERVER from validated answers. The client also computes a
   // persona to pick the reframe copy, but that value is never trusted or sent —
   // a crafted request cannot choose its own routing.
@@ -167,7 +204,17 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
       // Set here, never accepted from input — it is a CHECK-constrained column.
       lead_source: "diagnostic_flow",
       referring_url: referringUrl,
-      diagnostic_answers: answers,
+      /**
+       * The numbered answers and the capture-step selects share this jsonb
+       * column — numeric keys "1".."7" for the questions, named keys "budget",
+       * "timeline", "insurance", "contact_preference" for the selects.
+       *
+       * ONE COLUMN, NO MIGRATION. Four new columns would each have needed DDL
+       * run by hand in the SQL editor before any of this could ship, and a
+       * deploy that silently depends on someone remembering to run a migration
+       * is how a field ends up quietly empty in production.
+       */
+      diagnostic_answers: { ...answers, ...captureFields },
       primary_persona: persona.slug,
       routed_entities: routesToJson(routes),
       ...consent,
@@ -209,6 +256,7 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
       zip: data.zip || null,
       personaSlug: persona.slug,
       answers,
+      captureFields,
       smsConsent: consent.sms_consent,
       smsConsentText: consent.sms_consent_text,
       smsConsentTimestamp: consent.sms_consent_timestamp,

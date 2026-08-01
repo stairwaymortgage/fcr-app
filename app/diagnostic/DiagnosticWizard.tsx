@@ -5,7 +5,12 @@ import { useState } from "react";
 
 import { SMS_CONSENT_TEXT } from "@/lib/consent";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { QUESTIONS, detectPersona, type Answers } from "@/lib/personas";
+import {
+  CAPTURE_FIELDS,
+  QUESTIONS,
+  detectPersona,
+  type Answers,
+} from "@/lib/personas";
 
 import { submitDiagnostic } from "./actions";
 
@@ -158,6 +163,9 @@ export default function DiagnosticWizard({
         Object.entries(answers).map(([k, v]) => [k, String(v)]),
       ),
       referringSlug: referringSlug ?? "",
+      captureFields: Object.fromEntries(
+        CAPTURE_FIELDS.map((f) => [f.key, String(formData.get(f.key) ?? "")]),
+      ),
     });
 
     setPending(false);
@@ -377,6 +385,36 @@ export default function DiagnosticWizard({
                 className={`border bg-white px-3.5 py-2.5 text-base text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10 ${bad("zip")}`}
               />
             </label>
+          </div>
+
+          {/*
+            The four data points GoHighLevel has fields for that the seven
+            questions never produced. Selects rather than new question screens,
+            so the funnel stays seven steps long. See CAPTURE_FIELDS.
+          */}
+          <div className="grid grid-cols-2 gap-4 max-[560px]:grid-cols-1">
+            {CAPTURE_FIELDS.map((f) => (
+              <label key={f.key} className="flex flex-col gap-1.5">
+                <span className="font-mono text-label font-medium uppercase tracking-[0.08em] text-gray-500">
+                  {f.label}
+                </span>
+                <select
+                  name={f.key}
+                  required
+                  defaultValue=""
+                  className={`border bg-white px-3.5 py-2.5 text-base text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10 ${bad(f.key)}`}
+                >
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {f.choices.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
           </div>
 
           {/*
