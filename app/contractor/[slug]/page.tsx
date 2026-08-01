@@ -1010,8 +1010,12 @@ export default async function ContractorProfilePage({
                 Claim this profile to verify your identity, add a description, and
                 update your contact information. Free, takes 5 minutes.
               </p>
+              {/* Anon visitors are not stopped here — middleware and the page's
+                  own requireUser() send them to /login carrying this path as
+                  `next`, so they return to the form after the magic link rather
+                  than being asked to find it again. */}
               <Link
-                href="/contractors"
+                href={`/contractor/${contractor.slug}/claim`}
                 className={`inline-block border border-navy px-[18px] py-[9px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-navy transition-colors hover:bg-navy hover:text-paper ${FOCUS_RING_PAPER}`}
               >
                 Claim Profile →

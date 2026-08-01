@@ -89,7 +89,18 @@ export async function middleware(request: NextRequest) {
     path === "/inquiries" ||
     path.startsWith("/inquiries/") ||
     path === "/claim" ||
-    path.startsWith("/claim/");
+    path.startsWith("/claim/") ||
+    /**
+     * The claim form lives UNDER the public profile, at
+     * /contractor/{slug}/claim — so it cannot be covered by a prefix like
+     * everything else here, and a prefix of "/contractor/" would gate all
+     * 266,305 public profile pages behind a login.
+     *
+     * Anchored at both ends: without the $ this also matches
+     * /contractor/x/claim-something, and without the restricted slug class a
+     * crafted path could widen it further.
+     */
+    /^\/contractor\/[a-z0-9-]+\/claim$/.test(path);
 
   if (needsUser && !user) {
     const login = new URL("/login", request.url);
