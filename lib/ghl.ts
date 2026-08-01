@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Answers } from "@/lib/personas";
+import { QUESTIONS, type Answers } from "@/lib/personas";
 
 /**
  * GoHighLevel push — LeadConnector API v2.
@@ -161,6 +161,66 @@ async function fetchFieldDefs(
   }
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TAGS ARE THE PRIMARY DELIVERY CHANNEL FOR THE ANSWERS. CUSTOM FIELDS ARE NOT.
+ *
+ * Custom fields turned out to be the wrong mechanism for this integration, for
+ * a reason that is not going to change on its own: the four dropdown fields
+ * were built against a different question set, and the API token cannot fix
+ * them. Verified 2026-07-31 — every write path is refused:
+ *
+ *   POST /locations/{id}/customFields   -> 401 not authorized for this scope
+ *   PUT  /locations/{id}/customFields/… -> 401 not authorized for this scope
+ *
+ * So the fields can neither be realigned nor replaced from here. They can only
+ * be edited by hand in the GHL UI, and until someone does, four of them reject
+ * every value the diagnostic produces.
+ *
+ * TAGS HAVE NO SCHEMA. They need no field definition, no option list, no
+ * matching taxonomy and no scope beyond the contacts.write we already use —
+ * confirmed by upserting a contact with tags and reading them back intact. And
+ * they are first-class in HighLevel automation: a workflow can trigger on
+ * "Contact Tag" and branch on tag conditions, which is exactly the persona
+ * routing Row 126 calls for.
+ *
+ * So all seven answers and the persona ship as tags, always. The custom-field
+ * writes stay as well — they cost nothing, they populate the three text fields
+ * today, and the four dropdowns will start filling the moment their options are
+ * corrected. Nothing is lost by keeping both; the lead stops depending on it.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/** `fcr-persona-quality_seeker`, `fcr-q1-own_renovating`, … */
+function buildTags(personaSlug: string, answers: Answers): string[] {
+  const tags = [`fcr-persona-${personaSlug}`];
+  for (const q of QUESTIONS) {
+    const value = answers[q.id];
+    if (value) tags.push(`fcr-q${q.id}-${value}`);
+  }
+  return tags;
+}
+
+/**
+ * A readable transcript for whoever opens the contact.
+ *
+ * The tags carry the machine-readable values for automations; a concierge
+ * reading `fcr-q3-preserve_savings` before a call should not have to decode it.
+ * Labels come from QUESTIONS, the same definitions the wizard renders, so the
+ * note says what the visitor actually saw.
+ */
+function buildNote(personaSlug: string, answers: Answers): string {
+  const lines = [`Florida Contractor Registry — diagnostic`, ``, `Persona: ${personaSlug}`, ``];
+  for (const q of QUESTIONS) {
+    const value = answers[q.id];
+    if (!value) continue;
+    const choice = q.choices.find((c) => c.value === value);
+    lines.push(`Q${q.id}. ${q.prompt}`);
+    lines.push(`    ${choice?.label ?? value}   [${value}]`);
+  }
+  return lines.join("\n");
+}
+
 export interface GhlLead {
   name: string;
   email: string;
@@ -309,6 +369,8 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
         phone: lead.phone,
         postalCode: lead.zip ?? undefined,
         source: "Florida Contractor Registry — diagnostic",
+        // The answers, in the one form GHL cannot reject. See buildTags above.
+        tags: buildTags(lead.personaSlug, lead.answers),
         customFields,
       }),
     });
@@ -326,6 +388,29 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
     const contactId: string | undefined = contactBody?.contact?.id ?? contactBody?.id;
     if (!contactId) {
       return { ok: false, error: "contact upsert returned no id", unmapped };
+    }
+
+    /**
+     * Best-effort transcript. Deliberately not allowed to affect the result:
+     * the answers are already delivered as tags by this point, so a failed note
+     * is a cosmetic loss, and marking the lead undelivered over it would put a
+     * fully-delivered contact into the retry queue.
+     */
+    try {
+      const noteRes = await fetch(`${BASE}/contacts/${contactId}/notes`, {
+        method: "POST",
+        headers: headers(token),
+        body: JSON.stringify({ body: buildNote(lead.personaSlug, lead.answers) }),
+      });
+      if (!noteRes.ok) {
+        console.warn("[ghl] note not created", {
+          contactId,
+          status: noteRes.status,
+          body: (await noteRes.text()).slice(0, 200),
+        });
+      }
+    } catch (err) {
+      console.warn("[ghl] note threw", { contactId, error: String(err).slice(0, 200) });
     }
 
     const oppRes = await fetch(`${BASE}/opportunities/`, {
