@@ -21,10 +21,17 @@ import { QUESTIONS, type Answers } from "@/lib/personas";
  *     endpoints used here return 200/201.
  *   - contact.sms_consent_text is LARGE_TEXT with no maxLength; a 582-character
  *     consent string round-tripped byte-identical.
- *   - GHL ACCEPTS OUT-OF-RANGE SINGLE_OPTIONS VALUES SILENTLY. Posting
- *     "long_term_owner" to contact.persona — whose options are speed_to_sale,
- *     maximize_value, … — returned HTTP 201 and stored it verbatim. There is no
- *     validation to lean on, which is why this module validates before sending.
+ *   - GHL DISCARDS OUT-OF-RANGE SINGLE_OPTIONS VALUES AND REPORTS SUCCESS.
+ *     Re-tested precisely on 2026-08-01: posting fix_and_flip, buying_to_flip,
+ *     fast_capital and sell_different to the four dropdowns whose options do
+ *     not include them returned HTTP 201, and reading the contact back showed
+ *     0 of 4 present — not stored wrong, not stored at all.
+ *
+ *     THIS IS THE WHOLE PROBLEM, AND NO CHANGE HERE CAN SOLVE IT. A dropdown
+ *     stores only what it defines. Sending the value anyway is not a workaround;
+ *     it is the thing that was already happening and already failing. The four
+ *     fields can be filled only by editing their options in the GHL UI — which
+ *     this token cannot do (401 on both POST and PUT to /customFields).
  */
 
 const BASE = "https://services.leadconnectorhq.com";
@@ -76,13 +83,13 @@ export const GHL_PIPELINE = {
  * briefly. Realign a dropdown in the GHL UI and leads start populating within
  * the cache TTL, with no deploy.
  *
- * WHY VALIDATE AT ALL — GHL ACCEPTS OUT-OF-RANGE OPTIONS SILENTLY. Posting
- * "long_term_owner" to a field whose options are speed_to_sale, maximize_value,
- * … returns HTTP 201 and stores it verbatim. It looks like success. The field
- * reads as populated over the API while the contact card shows blank and every
- * workflow condition — which can only be built from the field's DEFINED options
- * — matches nothing. An unmatched value is therefore recorded in `unmapped` and
- * omitted, so the gap is loud instead of invisible.
+ * WHY VALIDATE AT ALL — GHL DISCARDS OUT-OF-RANGE OPTIONS AND RETURNS 201.
+ * Posting "fix_and_flip" to a field whose options are speed_to_sale,
+ * maximize_value, … succeeds, and the value is then absent from the contact.
+ * Validating changes nothing about what lands; it changes whether anyone can
+ * SEE why nothing landed. An unmatched value is recorded in `unmapped` with the
+ * field's type and its real option list, so the gap is loud instead of a blank
+ * cell nobody can explain.
  *
  * AS OF 2026-07-31 the four dropdowns still carry a seller-intent taxonomy
  * (persona: speed_to_sale | maximize_value | distress_urgent | …) that shares
