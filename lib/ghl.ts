@@ -46,10 +46,15 @@ const VERSION = "2021-07-28";
  * them here would just be a promise the wizard cannot keep.
  */
 export const GHL_FIELDS = {
-  persona: "9a6Llc5Z8W2u8WLVQz0Q", // contact.persona           SINGLE_OPTIONS
-  project_type: "j8lB8DnU9KgGqsLQ521g", // contact.project_type      SINGLE_OPTIONS
-  financing_needed: "iG7oxSEUDyT1zT9t6NVK", // contact.financing_needed  SINGLE_OPTIONS
-  selling_plans: "lC7UjhEwKmImENMzKU0P", // contact.selling_plans     SINGLE_OPTIONS
+  // Re-fetched 2026-08-01. THE FIRST FOUR IDS CHANGED — the dropdowns were
+  // deleted and recreated as TEXT in the GHL UI, and GHL issues a new id for a
+  // recreated field. The old ids returned "GONE" against the live location, so
+  // every write to them was addressed to a field that no longer existed.
+  // Re-fetch these whenever a field is recreated rather than merely edited.
+  persona: "IoWPLXGnZPZnQSGvttS9", // contact.persona           TEXT
+  project_type: "7rfjNN23l9CZ2LdFP57t", // contact.project_type      TEXT
+  financing_needed: "2dGEECDlQt84teQzai5m", // contact.financing_needed  TEXT
+  selling_plans: "O45AF81iMIF8mdCUjXAy", // contact.selling_plans     TEXT
   sms_consent_text: "30mfXR8PIp8bzb7gqxtK", // contact.sms_consent_text  LARGE_TEXT
   consent_timestamp: "UTVNYL0y69rSrorO7WVq", // contact.consent_timestamp DATE
   fcr_source: "NAF3nVcw9UX7cQh2rdFv", // contact.fcr_source        TEXT
