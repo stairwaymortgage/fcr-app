@@ -109,3 +109,42 @@ CREATE INDEX IF NOT EXISTS idx_claims_claimant
 --   duplicate key value violates unique constraint "claims_one_approved_per_profile"
 -- which is the intended outcome, but reads as a database error rather than
 -- "this profile is already claimed" until the admin UI translates it.
+
+
+-- ----------------------------------------------------------
+-- 5. THE REVIEW PROCESS, WHERE THE REVIEWER WILL ACTUALLY BE
+-- ----------------------------------------------------------
+--
+-- docs/claim-review-runbook.md is the full version. These COMMENTs duplicate
+-- the essentials onto the table itself, because there is no admin UI and the
+-- review happens in the Supabase dashboard — where a markdown file in a repo
+-- is not in front of anyone. Same lesson as the leads table: a capture point
+-- nobody checks is worth nothing, and a process that lives only in a document
+-- the reviewer never opens is a process that does not exist.
+--
+-- The two-statement approval is called out in the status column comment too,
+-- since that is the field someone edits when they think they are approving.
+
+COMMENT ON TABLE public.claims IS
+'Contractor identity verification attempts. ID photos auto-delete 90 days post-decision (PURGE JOB NOT BUILT YET).
+
+HOW TO REVIEW: docs/claim-review-runbook.md in the repo.
+
+Queue:  SELECT * FROM claims WHERE status = ''pending'' ORDER BY created_at;
+Photo:  Storage -> id-photos -> folder named for claimant_user_id -> click the file.
+        (The dashboard authenticates as service role. No signed URL needed.)
+Check:  name on the ID vs contractors.qualifying_agent_name.
+
+APPROVING TAKES TWO STATEMENTS. The second one is what actually grants access:
+  UPDATE claims SET status=''approved'', reviewed_at=now(), reviewed_by_user_id=''<you>'' WHERE id=''<claim>'';
+  UPDATE contractors SET claimed_by_user_id=''<claimant_user_id>'', claimed_at=now() WHERE dbpr_sync_key=''<key>'';
+Run only the first and the claim reads approved while the contractor sees an unclaimed profile and no inquiries.';
+
+COMMENT ON COLUMN public.claims.status IS
+'pending | approved | rejected. Setting this to approved GRANTS NOTHING on its own - contractors.claimed_by_user_id is what every RLS policy tests. See the table comment.';
+
+COMMENT ON COLUMN public.claims.claimant_user_id IS
+'auth.users id. Also the FOLDER NAME holding the ID photo in the private id-photos bucket.';
+
+COMMENT ON COLUMN public.claims.rejection_reason IS
+'Shown VERBATIM to the contractor on /claim/rejected. Write it for them to read; use admin_notes for internal notes. Rejection is not a lockout - they can submit again immediately.';
