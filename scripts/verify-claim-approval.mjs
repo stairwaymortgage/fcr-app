@@ -31,7 +31,7 @@ const JPEG = Buffer.from(
   "HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAA" +
   "AAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64");
 
-const cleanup = { users: [], claims: [], inquiries: [], syncKey: null };
+const cleanup = { users: [], claims: [], inquiries: [], syncKey: null, otherKeys: [] };
 
 try {
   const { data: target } = await admin.from("contractors")
@@ -104,21 +104,127 @@ try {
     claimed_by_user_id: u.user.id, claimed_at: new Date().toISOString(),
   }).eq("dbpr_sync_key", target.dbpr_sync_key);
   {
-    const { data } = await contractor.from("contractors")
-      .update({ custom_about_text: "We roof things." })
-      .eq("dbpr_sync_key", target.dbpr_sync_key).select("custom_about_text");
-    ok("contractor CAN now edit their profile", data?.[0]?.custom_about_text === "We roof things.",
-       data?.[0]?.custom_about_text);
+    /**
+     * THROUGH THE RPC, NOT A DIRECT UPDATE. This assertion used to write
+     * custom_about_text straight at the table, which stopped being possible when
+     * 20260803_contractor_profile_lockdown.sql revoked UPDATE from authenticated
+     * — so it was silently asserting the wrong thing against a path that no
+     * longer exists. update_own_contractor_profile() is now the only way in.
+     */
+    const { error } = await contractor.rpc("update_own_contractor_profile", {
+      p_dbpr_sync_key: target.dbpr_sync_key, p_about: "We roof things.",
+    });
+    const { data } = await admin.from("contractors")
+      .select("custom_about_text").eq("dbpr_sync_key", target.dbpr_sync_key).single();
+    ok("contractor CAN now edit their profile (via the RPC)",
+       !error && data?.custom_about_text === "We roof things.",
+       error?.message ?? data?.custom_about_text);
   }
   {
     const { data } = await contractor.from("inquiries").select("id, from_name");
     ok("contractor CAN now see their inquiry", (data?.length ?? 0) === 1, data?.[0]?.from_name);
   }
   {
-    const { data } = await contractor.from("contractors")
-      .update({ custom_about_text: "nope" }).neq("dbpr_sync_key", target.dbpr_sync_key).select();
-    ok("contractor still cannot edit ANY other profile", (data?.length ?? 0) === 0,
-       `${data?.length ?? 0} of 266K rows`);
+    const { data: other } = await admin.from("contractors")
+      .select("dbpr_sync_key").neq("dbpr_sync_key", target.dbpr_sync_key)
+      .is("claimed_by_user_id", null).limit(1).single();
+    cleanup.otherKeys.push(other.dbpr_sync_key);
+    const { error } = await contractor.rpc("update_own_contractor_profile", {
+      p_dbpr_sync_key: other.dbpr_sync_key, p_about: "nope",
+    });
+    const { data } = await admin.from("contractors")
+      .select("custom_about_text").eq("dbpr_sync_key", other.dbpr_sync_key).single();
+    ok("contractor still cannot edit ANY other profile",
+       !!error && data?.custom_about_text !== "nope", error?.message ?? "ACCEPTED");
+  }
+
+  console.log("\n── approve_claim() SETS claim_tier ─────────────────────");
+  /**
+   * THE ASSERTION WHOSE ABSENCE SHIPPED THE BUG.
+   *
+   * Everything above tests claimed_by_user_id, because that is what grants
+   * capability. claim_tier was never checked, and approve_claim() never set it —
+   * so an approved profile sat at 'unclaimed' and the PUBLIC page, which read
+   * claim_tier, rendered the DBPR description, the "not been claimed"
+   * disclaimer, the claim box, and none of the owner's contact details. The
+   * editor worked the whole time, because it gates on the other column.
+   *
+   * Fixed in 20260803_claim_tier_on_approval.sql. These run the real RPC as a
+   * real admin rather than the hand-written UPDATEs above.
+   */
+  const adminEmail = `approver-${randomUUID().slice(0, 8)}@example.com`;
+  const adminPassword = randomUUID();
+  const { data: au } = await admin.auth.admin.createUser({
+    email: adminEmail, password: adminPassword, email_confirm: true,
+    app_metadata: { role: "admin" },
+  });
+  cleanup.users.push(au.user.id);
+  const reviewer = createClient(URL_, ANON, { auth: { persistSession: false } });
+  await reviewer.auth.signInWithPassword({ email: adminEmail, password: adminPassword });
+
+  // Back to a clean unclaimed profile with one pending claim.
+  await admin.from("contractors").update({
+    claimed_by_user_id: null, claimed_at: null,
+    claim_tier: "unclaimed", custom_about_text: null,
+  }).eq("dbpr_sync_key", target.dbpr_sync_key);
+  await admin.from("claims").update({ status: "pending", reviewed_at: null })
+    .eq("id", claimId);
+
+  {
+    const { error } = await reviewer.rpc("approve_claim", { p_claim_id: claimId });
+    ok("approve_claim() succeeds for an admin", !error, error?.message ?? "");
+  }
+  {
+    const { data } = await admin.from("contractors")
+      .select("claim_tier, claimed_by_user_id, claimed_at")
+      .eq("dbpr_sync_key", target.dbpr_sync_key).single();
+    ok("claimed_by_user_id is set", data?.claimed_by_user_id === u.user.id);
+    ok("claim_tier is 'claimed', NOT 'unclaimed'", data?.claim_tier === "claimed",
+       data?.claim_tier);
+    ok("the two columns agree (this is the bug)",
+       (data?.claimed_by_user_id !== null) === (data?.claim_tier !== "unclaimed"),
+       `owner=${!!data?.claimed_by_user_id} tier=${data?.claim_tier}`);
+  }
+  {
+    const { data } = await admin.from("claims").select("status").eq("id", claimId).single();
+    ok("the claim reads approved", data?.status === "approved", data?.status);
+  }
+
+  console.log("\n── RE-APPROVAL MUST NOT DEMOTE A FEATURED PROFILE ──────");
+  {
+    // The COALESCE/NULLIF guard: a paid profile re-approved must stay featured,
+    // or an admin decision would silently cancel someone's placement.
+    await admin.from("claims").update({ status: "rejected" }).eq("id", claimId);
+    await admin.from("contractors").update({ claim_tier: "featured" })
+      .eq("dbpr_sync_key", target.dbpr_sync_key);
+
+    const second = randomUUID();
+    cleanup.claims.push(second);
+    await admin.from("claims").insert({
+      id: second, contractor_dbpr_sync_key: target.dbpr_sync_key,
+      claimant_user_id: u.user.id, claimant_name: "Test Claimant",
+      claimant_email: email, id_photo_url: `${u.user.id}/${second}.jpg`,
+    });
+    const { error } = await reviewer.rpc("approve_claim", { p_claim_id: second });
+    const { data } = await admin.from("contractors")
+      .select("claim_tier").eq("dbpr_sync_key", target.dbpr_sync_key).single();
+    ok("a featured profile stays featured after re-approval",
+       !error && data?.claim_tier === "featured", error?.message ?? data?.claim_tier);
+  }
+
+  console.log("\n── NO ROW ANYWHERE DISAGREES ───────────────────────────");
+  {
+    const { count } = await admin.from("contractors")
+      .select("dbpr_sync_key", { count: "exact", head: true })
+      .not("claimed_by_user_id", "is", null).eq("claim_tier", "unclaimed");
+    ok("no owned profile is still 'unclaimed' (backfill held)", (count ?? 0) === 0,
+       `${count} row(s)`);
+  }
+  {
+    const { count } = await admin.from("contractors")
+      .select("dbpr_sync_key", { count: "exact", head: true })
+      .is("claimed_by_user_id", null).neq("claim_tier", "unclaimed");
+    ok("no ownerless profile claims a tier", (count ?? 0) === 0, `${count} row(s)`);
   }
 
   console.log("\n── REJECTION → REAPPLY ─────────────────────────────────");
@@ -178,9 +284,16 @@ try {
   for (const id of cleanup.claims) await admin.from("claims").delete().eq("id", id);
   for (const id of cleanup.inquiries) await admin.from("inquiries").delete().eq("id", id);
   if (cleanup.syncKey) {
+    // claim_tier is restored too — the featured test above sets it, and leaving
+    // a real contractor row marked 'featured' would put an unpaid profile at the
+    // top of every county and city page.
     await admin.from("contractors").update({
       claimed_by_user_id: null, claimed_at: null, custom_about_text: null,
+      claim_tier: "unclaimed", stripe_subscription_id: null, featured_since: null,
     }).eq("dbpr_sync_key", cleanup.syncKey);
+  }
+  for (const key of cleanup.otherKeys) {
+    await admin.from("contractors").update({ custom_about_text: null }).eq("dbpr_sync_key", key);
   }
   for (const uid of cleanup.users) {
     const { data: files } = await admin.storage.from("id-photos").list(uid);

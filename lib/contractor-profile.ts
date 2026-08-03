@@ -30,7 +30,7 @@ const PROFILE_COLUMNS =
   "license_status, license_status_secondary, original_license_date, " +
   "expiration_date, disciplinary_codes, claim_tier, claimed_at, " +
   "custom_about_text, custom_logo_path, custom_owner_photo_path, custom_phone, " +
-  "custom_email, custom_website_url, custom_service_area";
+  "custom_email, custom_website_url, custom_service_area, claimed_by_user_id";
 
 export interface ContractorProfile {
   dbpr_sync_key: string;
@@ -60,6 +60,31 @@ export interface ContractorProfile {
   custom_email: string | null;
   custom_website_url: string | null;
   custom_service_area: string | null;
+  /**
+   * ═════════════════════════════════════════════════════════════════════════
+   * FETCHED FOR A CONDITIONAL. NEVER RENDERED, NEVER SERIALISED.
+   *
+   * This is an auth.users id, and it is deliberately not in any output. It
+   * exists in the payload of /contractor/[slug] for exactly one purpose:
+   * isClaimed() below. Verified on 2026-08-03 —
+   *
+   *   - no JSX on the public profile prints it;
+   *   - getContractorBySlug has exactly two callers, both in
+   *     app/contractor/[slug]/page.tsx (generateMetadata and the page);
+   *   - that file ships NO client component, so React never serialises the
+   *     contractor object into an RSC payload. The only client component in
+   *     that route tree is claim/ClaimForm.tsx, which receives named scalar
+   *     props (slug, syncKey, licenseNumber, businessName, defaultEmail,
+   *     attestation) and never the row.
+   *
+   * ⚠ THE LAST POINT IS A CONDITION, NOT A FACT ABOUT THE COLUMN. The moment
+   * anything on that page becomes a Client Component and is handed
+   * `contractor`, this uuid lands in the HTML as serialised props and is
+   * readable with View Source. If you add one, pass named fields — never the
+   * whole row.
+   * ═════════════════════════════════════════════════════════════════════════
+   */
+  claimed_by_user_id: string | null;
 }
 
 /**
@@ -96,41 +121,18 @@ export async function getContractorBySlug(
 }
 
 /**
- * The same profile plus the one column that decides who may edit it.
+ * FORMERLY getManagedContractorBySlug, now deliberately gone.
  *
- * SEPARATE FROM getContractorBySlug ON PURPOSE. claimed_by_user_id is the
- * linkage the whole portal turns on, and it is a user id — there is no reason
- * for the public profile page to carry one in its payload just because the
- * editor needs it. The public read keeps the column list it had.
+ * It existed only to fetch claimed_by_user_id alongside the profile, on the
+ * argument that the public page had no business carrying a user id it did not
+ * use. That argument lost to a correctness one: isClaimed() has to read the
+ * ownership column, so it is in PROFILE_COLUMNS and the second function was
+ * two near-identical queries with two log tags.
  *
- * This is only an identity check, never an authorisation one. The page uses it
- * to decide whether to render or 404; the actual write is refused or allowed by
- * update_own_contractor_profile(), which repeats the same test inside the
- * database. Middleware, this check, and the RPC — three layers, the same shape
- * as the claim flow.
+ * /manage/[slug] uses getContractorBySlug and compares claimed_by_user_id to
+ * the session itself. See the note on the field for why carrying it is safe,
+ * and for the condition that makes it safe.
  */
-export interface ManagedContractor extends ContractorProfile {
-  claimed_by_user_id: string | null;
-}
-
-export async function getManagedContractorBySlug(
-  db: Db,
-  slug: string,
-): Promise<ManagedContractor | null> {
-  const { data, error } = await db
-    .from("contractors")
-    .select(`${PROFILE_COLUMNS}, claimed_by_user_id`)
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[manage] lookup failed", { slug, message: error.message });
-    return null;
-  }
-
-  // Same concatenated-select inference limitation as getContractorBySlug.
-  return (data as unknown as ManagedContractor) ?? null;
-}
 
 export interface SiblingLicense {
   dbpr_sync_key: string;
@@ -243,8 +245,30 @@ export async function getLicenseTypeInfo(
  * loading a real page. Treat those branches as untested until the first real
  * claim exists.
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * OWNERSHIP, NOT TIER. THIS USED TO READ claim_tier AND THAT WAS THE BUG.
+ *
+ * approve_claim() has always written claimed_by_user_id and never claim_tier,
+ * so an approved profile sat at 'unclaimed' and this returned false. Live on
+ * 2026-08-03: a verified contractor saved an About text and contact details,
+ * and their public page still showed the DBPR-generated description, the "has
+ * not been claimed by its owner" disclaimer, the claim box, and none of their
+ * contact fields. Meanwhile /manage worked perfectly, because it gates on
+ * claimed_by_user_id — two definitions of "claimed", and approval satisfied
+ * only one.
+ *
+ * claimed_by_user_id is the right one and always was: it is the column every
+ * RLS policy tests, the column update_own_contractor_profile() checks, and the
+ * column that decides whether the contractor can do anything at all. A profile
+ * is claimed when someone owns it.
+ *
+ * 20260803_claim_tier_on_approval.sql fixes the function and backfills, so the
+ * two columns now agree. This reads the one that cannot drift.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 export function isClaimed(contractor: ContractorProfile): boolean {
-  return contractor.claim_tier !== "unclaimed";
+  return contractor.claimed_by_user_id !== null;
 }
 
 export function isFeatured(contractor: ContractorProfile): boolean {

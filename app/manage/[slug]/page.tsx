@@ -7,8 +7,8 @@ import { requireUser } from "@/lib/auth";
 import {
   formatBusinessName,
   formatPersonName,
-  getManagedContractorBySlug,
-  type ManagedContractor,
+  getContractorBySlug,
+  type ContractorProfile,
 } from "@/lib/contractor-profile";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { createClient } from "@/lib/supabase/server";
@@ -61,7 +61,7 @@ export default async function ManageProfilePage({
   const user = await requireUser(`/manage/${params.slug}`);
 
   const db = createClient();
-  const contractor = await getManagedContractorBySlug(db, params.slug);
+  const contractor = await getContractorBySlug(db, params.slug);
 
   // Missing profile and someone else's profile are the same answer on purpose.
   if (!contractor || contractor.claimed_by_user_id !== user.id) notFound();
@@ -167,7 +167,7 @@ function initialsFor(name: string): string {
  * update_own_contractor_profile() cannot reach them and direct UPDATE is
  * revoked. See db/migrations/20260803_contractor_profile_lockdown.sql.
  */
-function LockedCard({ contractor }: { contractor: ManagedContractor }) {
+function LockedCard({ contractor }: { contractor: ContractorProfile }) {
   const address = [
     contractor.address_line && formatBusinessName(contractor.address_line),
     contractor.city &&
@@ -251,7 +251,7 @@ function Preview({
   contractor,
   name,
 }: {
-  contractor: ManagedContractor;
+  contractor: ContractorProfile;
   name: string;
 }) {
   const paragraphs = (contractor.custom_about_text ?? "")

@@ -82,17 +82,24 @@ async function notifyDecision(
   db: ReturnType<typeof createClient>,
   claimId: string,
   decision: ClaimDecision,
-): Promise<void> {
+): Promise<string | null> {
   try {
     /**
      * Read back rather than trusting the form: rejection_reason is normalised by
      * reject_claim() (trimmed, blanked to NULL), and the contractor's name and
      * licence live on contractors. Reading after the RPC also means the email
      * can only ever describe a decision the database actually recorded.
+     *
+     * `slug` rides along so the caller can revalidate the public profile. It is
+     * returned rather than fetched again because this read already joins the
+     * contractors row, and a decision that does not bust that page would leave
+     * a newly claimed profile rendering its unclaimed state.
      */
     const { data: claim, error } = await db
       .from("claims")
-      .select("claimant_email, rejection_reason, contractors(business_name, license_number)")
+      .select(
+        "claimant_email, rejection_reason, contractors(slug, business_name, license_number)",
+      )
       .eq("id", claimId)
       .single();
 
@@ -102,10 +109,11 @@ async function notifyDecision(
         decision,
         message: error?.message,
       });
-      return;
+      return null;
     }
 
     const contractor = oneRelation<{
+      slug: string | null;
       business_name: string | null;
       license_number: string | null;
     }>(claim.contractors);
@@ -127,13 +135,32 @@ async function notifyDecision(
     if (!result.ok) {
       console.warn("[admin] decision email not sent", { claimId, decision, error: result.error });
     }
+
+    return contractor?.slug ?? null;
   } catch (cause) {
     console.warn("[admin] decision email threw", {
       claimId,
       decision,
       message: cause instanceof Error ? cause.message : String(cause),
     });
+    return null;
   }
+}
+
+/** Slug shape, so a malformed value cannot reach revalidatePath. */
+const SLUG_SHAPE = /^[a-z0-9-]{1,200}$/;
+
+/**
+ * Bust the public profile after a decision.
+ *
+ * approve_claim() changes what that page renders — the claimed disclaimer, the
+ * claim box, the owner's About text and every custom contact field all turn on
+ * claimed_by_user_id. The page is dynamic today, so this is currently a no-op;
+ * it is here so that adding `export const revalidate` to /contractor/[slug]
+ * later cannot silently stop approvals from appearing.
+ */
+function revalidateProfile(slug: string | null): void {
+  if (slug && SLUG_SHAPE.test(slug)) revalidatePath(`/contractor/${slug}`);
 }
 
 export async function approveClaim(formData: FormData): Promise<void> {
@@ -160,7 +187,7 @@ export async function approveClaim(formData: FormData): Promise<void> {
 
   // After the RPC, never before: the contractor must not be told a claim was
   // approved by a call that then failed.
-  await notifyDecision(db, claimId, "approved");
+  revalidateProfile(await notifyDecision(db, claimId, "approved"));
 
   revalidatePath("/admin/claims");
   back({ ok: "approved" });
@@ -192,7 +219,7 @@ export async function rejectClaim(formData: FormData): Promise<void> {
     back({ error: error.message });
   }
 
-  await notifyDecision(db, claimId, "rejected");
+  revalidateProfile(await notifyDecision(db, claimId, "rejected"));
 
   revalidatePath("/admin/claims");
   back({ ok: "rejected" });
