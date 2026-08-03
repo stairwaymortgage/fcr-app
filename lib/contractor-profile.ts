@@ -29,7 +29,7 @@ const PROFILE_COLUMNS =
   "license_type, is_business, address_line, city, county_code, state, zip, " +
   "license_status, license_status_secondary, original_license_date, " +
   "expiration_date, disciplinary_codes, claim_tier, claimed_at, " +
-  "custom_about_text, custom_logo_url, custom_owner_photo_url, custom_phone, " +
+  "custom_about_text, custom_logo_path, custom_owner_photo_path, custom_phone, " +
   "custom_email, custom_website_url";
 
 export interface ContractorProfile {
@@ -53,8 +53,9 @@ export interface ContractorProfile {
   claim_tier: string;
   claimed_at: string | null;
   custom_about_text: string | null;
-  custom_logo_url: string | null;
-  custom_owner_photo_url: string | null;
+  /** STORAGE PATHS, not URLs — see the column comments in the lockdown migration. */
+  custom_logo_path: string | null;
+  custom_owner_photo_path: string | null;
   custom_phone: string | null;
   custom_email: string | null;
   custom_website_url: string | null;
