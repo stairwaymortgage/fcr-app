@@ -4,6 +4,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { CLAIM_ROLES, ID_PHOTO_BUCKET, oneRelation } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
+import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 import { approveClaim, rejectClaim } from "./actions";
@@ -137,12 +138,31 @@ export default async function AdminClaimsPage({
               Claim review queue
             </h1>
           </div>
-          <p className="font-mono text-[28px] font-semibold text-navy">
-            {claims.length}
-            <span className="ml-2 align-middle font-mono text-label uppercase tracking-label text-gray-500">
-              pending
-            </span>
-          </p>
+          <div className="flex flex-col items-end gap-2">
+            <p className="font-mono text-[28px] font-semibold text-navy">
+              {claims.length}
+              <span className="ml-2 align-middle font-mono text-label uppercase tracking-label text-gray-500">
+                pending
+              </span>
+            </p>
+            {/*
+              POST to the existing route, not a Server Action and not a link.
+              Same control as the dashboard's, for the same reason recorded in
+              app/auth/signout/route.ts: a GET sign-out can be fired by any image
+              tag on any site, which logs a reviewer out mid-decision.
+
+              No client JS — a plain form and a route handler. There is nothing
+              here for "use client" to do.
+            */}
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
+                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
+              >
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
 
         {searchParams.ok && (

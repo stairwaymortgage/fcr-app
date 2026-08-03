@@ -4,6 +4,7 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { isAdmin, requireUser } from "@/lib/auth";
+import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { DATA_AS_OF } from "@/lib/registry-stats";
 
 /**
@@ -81,7 +82,7 @@ export default async function DashboardPage() {
             <form action="/auth/signout" method="post">
               <button
                 type="submit"
-                className="text-note font-medium text-gray-600 underline hover:text-navy"
+                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
               >
                 Sign out
               </button>
