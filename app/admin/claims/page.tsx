@@ -377,6 +377,23 @@ export default async function AdminClaimsPage({
                         placeholder="e.g. The photo was too blurry to read the name."
                         className="border border-gray-300 bg-white px-3 py-2 text-note"
                       />
+                      {/*
+                        OPTIONAL, AND SAYING SO IS THE POINT.
+
+                        Both decision forms are one input above one button, side
+                        by side, with no confirm step — so Reject submits
+                        immediately with whatever is in the box, and an empty box
+                        is easy to not notice. A blank reason is a legitimate
+                        outcome (reject_claim() blanks it to NULL and
+                        /claim/rejected falls back to its generic wording), so
+                        `required` would be wrong: a reviewer forced to type will
+                        type "no". This line makes the consequence visible
+                        instead, which is the part that was missing.
+                      */}
+                      <p className="text-micro leading-[1.5] text-gray-500">
+                        Optional. Leave it blank and the contractor sees only our
+                        generic explanation — no reviewer note.
+                      </p>
                       <button
                         type="submit"
                         className="border border-status-error px-5 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-status-error transition-colors hover:bg-status-error hover:text-paper"
