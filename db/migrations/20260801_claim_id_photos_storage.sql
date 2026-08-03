@@ -147,8 +147,29 @@ COMMENT ON COLUMN public.claims.id_photo_url IS
 
 
 -- ==========================================================
--- 5. HOW JIM REVIEWS (no admin UI yet)
+-- 5. HOW JIM REVIEWS — ⚠ SUPERSEDED. DO NOT FOLLOW THIS SECTION.
 -- ==========================================================
+--
+-- SUPERSEDED by 20260801_claim_decision_functions.sql, which replaced the
+-- two-statement approval with approve_claim()/reject_claim(), and by the admin
+-- UI at /admin/claims. Reviewing now means opening that page, not the SQL
+-- editor. Same note as the one on public.claims in 20260801_claims_flow.sql.
+--
+-- The hand-written UPDATEs below are the exact hazard approve_claim() exists to
+-- remove: they are two statements, and running the first without the second
+-- leaves a claim reading "approved" while contractors.claimed_by_user_id is
+-- still null — an approval that grants nothing. The ⚠ at the end of this
+-- section asks for a trigger "once the admin UI exists". That question is
+-- answered; the function is the answer.
+--
+-- They are also now incomplete in a way that is easy to miss. Both RPCs re-base
+-- id_photo_expires_at to the DECISION date, which is the retention promise the
+-- claims table makes. An UPDATE typed by hand skips that, leaving the photo on
+-- the submission clock and the row quietly disagreeing with the stated policy.
+--
+-- Kept rather than deleted because the queue query and the "how to see the
+-- photo" note below are still the right way to inspect the bucket by hand, and
+-- because what the process used to be is worth being able to read.
 --
 -- Pending queue — run in the SQL editor:
 --
