@@ -204,24 +204,53 @@ COMMENT ON COLUMN public.claims.id_photo_url IS
 
 
 -- ==========================================================
--- 6. ⚠ THE 90-DAY DELETION IS NOT IMPLEMENTED
+-- 6. THE 90-DAY DELETION — IMPLEMENTED 2026-08-04
 -- ==========================================================
 --
--- public.claims is commented "ID photos auto-delete 90 days post-decision" and
--- id_photo_expires_at is NOT NULL, so every row will carry a deletion promise.
--- NOTHING CURRENTLY DELETES ANYTHING. As written, that comment is a claim we do
--- not keep, and if it reaches a privacy policy it becomes a false statement
--- about PII handling.
+-- This section used to read "NOT IMPLEMENTED" and warn that the promise on
+-- public.claims — "ID photos auto-delete 90 days post-decision" — was a claim
+-- we did not keep, and would become a false statement about PII handling the
+-- moment it reached a privacy policy. It is kept now:
 --
--- Deliberately not solved in this migration: it needs pg_cron (or a scheduled
--- route) plus a decision about whether the row survives the photo. Flagged so
--- it is a decision rather than an oversight. Sketch:
+--   20260804_id_photo_purge.sql               makes clearing the path legal
+--   lib/purge-id-photos.ts                    the logic
+--   app/api/cron/purge-id-photos/route.ts     the endpoint, CRON_SECRET-gated
+--   vercel.json                               daily at 07:00 UTC
+--   scripts/verify-id-photo-purge.mjs         proves the object is really gone
 --
---   SELECT cron.schedule('purge-expired-id-photos', '0 3 * * *', $$
---     ... delete from storage.objects where bucket_id='id-photos'
---         and name in (select id_photo_url from claims
---                       where id_photo_expires_at < now()) ...
---   $$);
+-- ⚠ THE pg_cron SKETCH THAT USED TO BE HERE COULD NEVER HAVE WORKED, and it is
+-- worth saying why rather than just deleting it. It proposed:
+--
+--   delete from storage.objects where bucket_id='id-photos' and name in (...)
+--
+-- Supabase puts a BEFORE DELETE trigger on storage.objects — protect_delete() —
+-- which raises 'Direct deletion from storage tables is not allowed. Use the
+-- Storage API instead.' with the hint 'This prevents accidental data loss from
+-- orphaned objects.'
+--
+-- The hint is the substance. That row is an index entry; the bytes live in
+-- object storage. Deleting the row would have stranded the file with nothing
+-- pointing at it — the retention record would say the photograph was destroyed
+-- while the photograph remained, which is strictly worse than not deleting at
+-- all, because it also destroys the means of noticing. Had the sketch not been
+-- blocked by that trigger, it would have produced exactly that outcome.
+--
+-- So the purge goes through the Storage API, which needs a process that can
+-- hold the service-role key and make HTTP calls. pg_cron could reach it via
+-- pg_net, but neither extension is enabled on this project, and that route also
+-- wants the service-role key in Vault and error handling written in plpgsql
+-- against an async HTTP queue. A scheduled route was one file.
+--
+-- THE ROW SURVIVES THE PHOTO. Only the object and id_photo_url are cleared;
+-- status, reviewed_by_user_id, rejection_reason, claimant details and
+-- id_photo_expires_at all stay. A claim is a record of a decision about
+-- someone's legal authority over a licensed business, and that record has to
+-- outlive the evidence it was based on. What retention requires is that we stop
+-- holding a photograph of a passport, not that we forget the claim happened.
+--
+-- ORDER: object first, column second. Clearing the column before the delete
+-- succeeded would throw away the only pointer to the file. See the comment in
+-- lib/purge-id-photos.ts.
 
 
 -- ==========================================================
