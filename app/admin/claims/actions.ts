@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
 import { getUser, isAdmin } from "@/lib/auth";
+import { oneRelation } from "@/lib/claims";
+import { formatBusinessName } from "@/lib/contractor-profile";
+import { sendClaimDecisionEmail, type ClaimDecision } from "@/lib/email";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -50,6 +53,89 @@ function back(params: Record<string, string>): never {
   redirect(`/admin/claims?${new URLSearchParams(params).toString()}`);
 }
 
+/**
+ * Tell the contractor what was decided.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * BEST EFFORT, AND CALLED ONLY AFTER THE RPC HAS SUCCEEDED.
+ *
+ * The decision is already committed by the time this runs — approve_claim()
+ * linked contractors.claimed_by_user_id inside its transaction, so the
+ * contractor HAS their profile whether or not this email lands. The database is
+ * the source of truth; this is a courtesy on top of it.
+ *
+ * So nothing in here is allowed to escape. sendClaimDecisionEmail never throws
+ * by contract, and the read-back is wrapped anyway: a failure to notify must not
+ * turn a completed approval into an error on the reviewer's screen, because the
+ * obvious response to that error is to approve again — and the second call
+ * raises "claim is not pending", which reads like the first one failed too.
+ *
+ * Every skipped or failed send is a console.warn carrying the claim id, so an
+ * undelivered decision is recoverable from the logs rather than invisible.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Awaited rather than fired and forgotten: serverless kills the process once the
+ * response is sent, so an un-awaited fetch here would be cancelled mid-flight
+ * often enough to look like flaky delivery.
+ */
+async function notifyDecision(
+  db: ReturnType<typeof createClient>,
+  claimId: string,
+  decision: ClaimDecision,
+): Promise<void> {
+  try {
+    /**
+     * Read back rather than trusting the form: rejection_reason is normalised by
+     * reject_claim() (trimmed, blanked to NULL), and the contractor's name and
+     * licence live on contractors. Reading after the RPC also means the email
+     * can only ever describe a decision the database actually recorded.
+     */
+    const { data: claim, error } = await db
+      .from("claims")
+      .select("claimant_email, rejection_reason, contractors(business_name, license_number)")
+      .eq("id", claimId)
+      .single();
+
+    if (error || !claim) {
+      console.warn("[admin] decision email skipped - could not read the claim back", {
+        claimId,
+        decision,
+        message: error?.message,
+      });
+      return;
+    }
+
+    const contractor = oneRelation<{
+      business_name: string | null;
+      license_number: string | null;
+    }>(claim.contractors);
+
+    // Same fallbacks the two pages use, so the email and the page it links to
+    // never disagree about what the business is called.
+    const fallback = decision === "approved" ? "your business" : "that profile";
+
+    const result = await sendClaimDecisionEmail({
+      to: claim.claimant_email,
+      decision,
+      contractorName: contractor?.business_name
+        ? formatBusinessName(contractor.business_name)
+        : fallback,
+      licenseNumber: contractor?.license_number ?? null,
+      rejectionReason: claim.rejection_reason,
+    });
+
+    if (!result.ok) {
+      console.warn("[admin] decision email not sent", { claimId, decision, error: result.error });
+    }
+  } catch (cause) {
+    console.warn("[admin] decision email threw", {
+      claimId,
+      decision,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
+
 export async function approveClaim(formData: FormData): Promise<void> {
   await requireAdminOr404();
 
@@ -71,6 +157,10 @@ export async function approveClaim(formData: FormData): Promise<void> {
     // actual reason rather than a generic failure.
     back({ error: error.message });
   }
+
+  // After the RPC, never before: the contractor must not be told a claim was
+  // approved by a call that then failed.
+  await notifyDecision(db, claimId, "approved");
 
   revalidatePath("/admin/claims");
   back({ ok: "approved" });
@@ -101,6 +191,8 @@ export async function rejectClaim(formData: FormData): Promise<void> {
     console.error("[admin] reject_claim failed", { claimId, code: error.code, message: error.message });
     back({ error: error.message });
   }
+
+  await notifyDecision(db, claimId, "rejected");
 
   revalidatePath("/admin/claims");
   back({ ok: "rejected" });
