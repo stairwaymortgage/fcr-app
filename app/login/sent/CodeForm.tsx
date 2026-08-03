@@ -12,13 +12,19 @@ import { sendLoginCode, verifyLoginCode } from "../actions";
  * Code entry.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * NO maxLength ON THE INPUT, AND NO SIX-BOX SPLIT UI.
+ * maxLength IS 12, NOT 6, AND THERE IS NO SIX-BOX SPLIT UI.
  *
  * This project issues EIGHT-digit codes, not the six most one-time-code UIs
  * assume. A maxLength of 6 — or six separate single-character boxes, the
  * fashionable treatment — would silently truncate every real code, and the
  * contractor would see "that code is wrong" while looking straight at the
- * right number. One field, generous limit, digits extracted on the server.
+ * right number. One field, digits extracted on the server.
+ *
+ * 12 is not arbitrary: it is the upper bound verifyLoginCode enforces in
+ * ../actions.ts, which accepts 4–12 digits after stripping non-digits. The two
+ * must stay in step. A cap BELOW the server's would truncate a code the server
+ * would have accepted — the same bug as a maxLength of 6, just rarer and so
+ * harder to spot.
  *
  * inputMode="numeric" brings up the number pad on a phone, which is where
  * contractors read their email. autoComplete="one-time-code" lets iOS and
