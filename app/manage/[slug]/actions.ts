@@ -5,8 +5,27 @@ import { revalidatePath } from "next/cache";
 import { getUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
+import type { EditableValues, SaveState } from "./save-state";
+
 /**
  * Profile save.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ THIS FILE MAY EXPORT ONLY ASYNC FUNCTIONS. NOTHING ELSE. EVER.
+ *
+ * "use server" turns every export into a server reference, and a value that is
+ * not an async function cannot be one. Next refuses at runtime with
+ *
+ *   A "use server" file can only export async functions, found object.
+ *
+ * and — this is the part that costs a day — tsc, next lint and next build all
+ * pass first. The check lives in the server runtime. It shipped once already:
+ * EMPTY_SAVE_STATE was exported from here, the page rendered fine, and the
+ * first thing to notice was a contractor pressing Save (digest 1753474867).
+ *
+ * Types are fine; they are erased before any of this applies. Anything with a
+ * runtime value belongs in ./save-state.ts.
+ * ═══════════════════════════════════════════════════════════════════════════
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * THIS FILE DOES NOT DECIDE WHO MAY WRITE. THE DATABASE DOES.
@@ -28,27 +47,6 @@ import { createClient } from "@/lib/supabase/server";
  * clears its column. The form submits every field on every save, so clearing
  * the website box and pressing Save means exactly what it looks like.
  */
-
-export type EditableValues = {
-  about: string;
-  website: string;
-  email: string;
-  phone: string;
-  serviceArea: string;
-};
-
-export type SaveState = {
-  ok: boolean;
-  error: string | null;
-  /**
-   * Echoed back ONLY on failure, so a rejected save does not empty the form.
-   * Losing 1200 characters of About text to a mistyped website would be a
-   * worse bug than the one the validation is catching.
-   */
-  values?: EditableValues;
-};
-
-export const EMPTY_SAVE_STATE: SaveState = { ok: false, error: null };
 
 /**
  * SQLSTATEs raised deliberately by update_own_contractor_profile().

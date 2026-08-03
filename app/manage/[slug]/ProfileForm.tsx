@@ -5,7 +5,8 @@ import { useFormState, useFormStatus } from "react-dom";
 
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 
-import { EMPTY_SAVE_STATE, saveProfile, type EditableValues } from "./actions";
+import { saveProfile } from "./actions";
+import { EMPTY_SAVE_STATE, type EditableValues } from "./save-state";
 
 /**
  * The editable half of /manage/[slug].
