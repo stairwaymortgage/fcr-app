@@ -1,6 +1,9 @@
 -- ==========================================================
 -- STORAGE LOCKDOWN: id-photos (GOVERNMENT ID PHOTOS)
--- Created 2026-08-01. REVIEW BEFORE RUNNING. Not yet applied.
+-- Created 2026-08-01. APPLIED — verified 2026-08-03: the id-photos bucket exists
+-- with public = false, and all three policies below are present on
+-- storage.objects. Re-running is safe; the bucket INSERT re-asserts public =
+-- false on conflict, which is the point of writing it that way.
 -- ==========================================================
 --
 -- This bucket holds photographs of driving licences and passports belonging to

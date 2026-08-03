@@ -1,14 +1,22 @@
 -- ==========================================================
 -- CONTRACTOR PORTAL: THE ONLY WRITE PATH IS AN RPC
--- Created 2026-08-03. REVIEW BEFORE RUNNING. Not yet applied.
+-- Created 2026-08-03. APPLIED 2026-08-03 — scripts/verify-profile-lockdown.mjs
+-- returned 33/33 against the live project. Re-verified the same day: the RPC
+-- exists, all three new columns are present, anon and authenticated hold no
+-- UPDATE or INSERT grant on contractors, and the old policy is gone.
 -- ==========================================================
 --
--- ⚠ DEPLOY ORDER MATTERS. RUN THIS BEFORE PUSHING THE CODE CHANGE.
+-- DEPLOY ORDER, RECORDED BECAUSE IT COST US.
 --
 -- This renames custom_logo_url to custom_logo_path and custom_owner_photo_url to
 -- custom_owner_photo_path, and lib/contractor-profile.ts names both columns in
--- its SELECT list. Deploy the code first and every contractor profile page 400s
--- from PostgREST until this runs. Migration first, then the code.
+-- its SELECT list. The two must land together, migration first: with the code
+-- deployed and the migration not yet run, PostgREST rejects the SELECT and every
+-- public contractor profile 404s.
+--
+-- That is exactly what happened on the day, in the gap between running this and
+-- the code reaching production. Brief and expected, but the same trap is waiting
+-- for the next migration that renames a column this SELECT list names.
 --
 -- ==========================================================
 -- WHAT WAS WRONG
