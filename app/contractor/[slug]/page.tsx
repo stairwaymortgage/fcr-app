@@ -973,6 +973,13 @@ export default async function ContractorProfilePage({
                   </a>
                 </DlRow>
               )}
+              {/* Service area is rendered here rather than left for a later
+                  task: /manage/[slug] collects it, so without this the editor
+                  would take a field that goes nowhere and the editor's own
+                  preview would show something the public page does not. */}
+              {claimed && contractor.custom_service_area && (
+                <DlRow term="Service area">{contractor.custom_service_area}</DlRow>
+              )}
             </dl>
           </SideBlock>
 

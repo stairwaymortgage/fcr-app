@@ -30,7 +30,7 @@ const PROFILE_COLUMNS =
   "license_status, license_status_secondary, original_license_date, " +
   "expiration_date, disciplinary_codes, claim_tier, claimed_at, " +
   "custom_about_text, custom_logo_path, custom_owner_photo_path, custom_phone, " +
-  "custom_email, custom_website_url";
+  "custom_email, custom_website_url, custom_service_area";
 
 export interface ContractorProfile {
   dbpr_sync_key: string;
@@ -59,6 +59,7 @@ export interface ContractorProfile {
   custom_phone: string | null;
   custom_email: string | null;
   custom_website_url: string | null;
+  custom_service_area: string | null;
 }
 
 /**
@@ -92,6 +93,43 @@ export async function getContractorBySlug(
   // runtime shape is still exactly ContractorProfile; only the inference is
   // lost. Keep the interface in step with the column list by hand.
   return (data as unknown as ContractorProfile) ?? null;
+}
+
+/**
+ * The same profile plus the one column that decides who may edit it.
+ *
+ * SEPARATE FROM getContractorBySlug ON PURPOSE. claimed_by_user_id is the
+ * linkage the whole portal turns on, and it is a user id — there is no reason
+ * for the public profile page to carry one in its payload just because the
+ * editor needs it. The public read keeps the column list it had.
+ *
+ * This is only an identity check, never an authorisation one. The page uses it
+ * to decide whether to render or 404; the actual write is refused or allowed by
+ * update_own_contractor_profile(), which repeats the same test inside the
+ * database. Middleware, this check, and the RPC — three layers, the same shape
+ * as the claim flow.
+ */
+export interface ManagedContractor extends ContractorProfile {
+  claimed_by_user_id: string | null;
+}
+
+export async function getManagedContractorBySlug(
+  db: Db,
+  slug: string,
+): Promise<ManagedContractor | null> {
+  const { data, error } = await db
+    .from("contractors")
+    .select(`${PROFILE_COLUMNS}, claimed_by_user_id`)
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[manage] lookup failed", { slug, message: error.message });
+    return null;
+  }
+
+  // Same concatenated-select inference limitation as getContractorBySlug.
+  return (data as unknown as ManagedContractor) ?? null;
 }
 
 export interface SiblingLicense {

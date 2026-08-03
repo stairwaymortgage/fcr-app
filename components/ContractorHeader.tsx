@@ -69,6 +69,19 @@ type ContractorNavLink = {
   label: string;
   /** Set on the one link that carries a count badge. */
   badge?: "inquiries";
+  /**
+   * TEMPORARY. False while the route does not exist yet.
+   *
+   * A nav that offers Photos and Settings before those pages are built sends a
+   * contractor who has just been verified straight into a 404 — the worst
+   * possible first impression of a portal they were told to trust. Hiding is
+   * better than disabling: a greyed-out link still says "this is here and you
+   * cannot have it", which is a different and equally wrong message.
+   *
+   * DELETE THE FLAG, NOT THE LINK, when the route lands: photos in task 146,
+   * settings in 148. Both hrefs below are already correct.
+   */
+  built: boolean;
 };
 
 /**
@@ -86,12 +99,15 @@ type ContractorNavLink = {
  * against the final route table before launch.
  */
 function contractorNavLinks(slug: string): readonly ContractorNavLink[] {
-  return [
-    { href: `/manage/${slug}`, label: "Profile" },
-    { href: "/inquiries", label: "Inquiries", badge: "inquiries" },
-    { href: `/manage/${slug}/photos`, label: "Photos" },
-    { href: `/manage/${slug}/settings`, label: "Settings" },
+  // Annotated rather than inferred: without it, .filter() widens `badge` from
+  // its literal type to string and the return type stops matching.
+  const all: readonly ContractorNavLink[] = [
+    { href: `/manage/${slug}`, label: "Profile", built: true },
+    { href: "/inquiries", label: "Inquiries", badge: "inquiries", built: false },
+    { href: `/manage/${slug}/photos`, label: "Photos", built: false },
+    { href: `/manage/${slug}/settings`, label: "Settings", built: false },
   ];
+  return all.filter((link) => link.built);
 }
 
 /**
