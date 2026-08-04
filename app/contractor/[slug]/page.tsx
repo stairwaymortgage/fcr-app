@@ -281,8 +281,22 @@ function Hero({
    * a logo that survives its own removal is the one failure this must not have.
    * The bucket's CDN already serves it.
    * ═══════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠ GATED ON isClaimed(), AND IT WAS NOT WHEN 146 SHIPPED. Every other custom
+   * field on this page — About text, phone, email, website — sits behind that
+   * gate; the logo was read straight off the column. Unreachable at the time,
+   * because only a claimed contractor can upload one, so an unclaimed row always
+   * held a null path.
+   *
+   * Task 148 made it reachable. Releasing a profile nulls claimed_by_user_id,
+   * and release_own_contractor_profile() clears custom_logo_path in the same
+   * statement — but that is one layer, in another file, and "unclaimed profile
+   * still wearing the last owner's branding" is not a failure worth leaving one
+   * layer deep. Two independent reasons must now both fail for it to happen.
    */
-  const logoUrl = logoPublicUrl(contractor.custom_logo_path);
+  const logoUrl = isClaimed(contractor)
+    ? logoPublicUrl(contractor.custom_logo_path)
+    : null;
 
   const identity = (
     <>

@@ -74,46 +74,56 @@ type ContractorNavLink = {
   label: string;
   /** Set on the one link that carries a count badge. */
   badge?: "inquiries";
-  /**
-   * TEMPORARY. False while the route does not exist yet.
-   *
-   * A nav that offers Photos and Settings before those pages are built sends a
-   * contractor who has just been verified straight into a 404 — the worst
-   * possible first impression of a portal they were told to trust. Hiding is
-   * better than disabling: a greyed-out link still says "this is here and you
-   * cannot have it", which is a different and equally wrong message.
-   *
-   * DELETE THE FLAG, NOT THE LINK, when the route lands: photos in task 146,
-   * settings in 148. Both hrefs below are already correct. Inquiries landed in
-   * task 147 and its flag is gone.
-   */
-  built: boolean;
 };
 
 /**
- * Four sections, this order. Verified identical across contractor_header.html,
- * manage_profile.html, contractor_inquiries.html, and claim_approved.html.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THERE WAS A `built: boolean` HERE, AND ITS JOB IS DONE.
+ *
+ * It existed so the nav could carry a link to a route that did not exist yet
+ * without sending a freshly-verified contractor into a 404 — the worst possible
+ * first impression of a portal they were told to trust. Hiding beat disabling:
+ * a greyed-out link still says "this is here and you cannot have it".
+ *
+ * Every route it guarded has now landed or been abandoned. Profile in 145,
+ * Inquiries in 147, Settings in 148 — and PHOTOS WAS DELETED RATHER THAN BUILT.
+ * Task 146 shipped logo upload as a section inside /manage/[slug], which is
+ * where manage_profile.html:756 puts it and where claim_approved.html:446 links
+ * (?focus=photo). /manage/[slug]/photos was an inferred href from Build Brief
+ * §04 line 344's "Used by → Future" list; no mockup for it exists, and the held
+ * portfolio gallery would get its own design rather than inherit that route.
+ * A nav entry pointing at a page nobody ever planned is worse than no entry.
+ *
+ * So the flag went with it: every remaining link is real, and a `built` that is
+ * always true plus a `.filter()` that never filters is machinery pretending to
+ * do something. RE-ADD IT — this docblock is the spec — the next time a nav
+ * link has to ship ahead of its route.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * THREE SECTIONS, THIS ORDER. The mockups show four — contractor_header.html,
+ * manage_profile.html, contractor_inquiries.html and claim_approved.html all
+ * render Profile / Inquiries / Photos / Settings identically. Photos is
+ * deliberately absent; see the block above for why it was deleted rather than
+ * built.
  *
  * Profile is slug-scoped; Inquiries is deliberately NOT — it is a flat
- * /inquiries route, matching the access-control note (docs line 335) that
- * names "/manage/* and /inquiries" as two separate middleware targets.
+ * /inquiries route, matching the access-control note (docs line 335) that names
+ * "/manage/* and /inquiries" as two separate middleware targets, and matching
+ * the page itself, which is one inbox across every profile the viewer owns.
  *
- * INFERRED HREFS: every mockup renders Photos and Settings as href="#" — the
- * routes were never resolved in the design pass. Build Brief §04 line 344
- * lists them under "Used by → Future" as /manage/[slug]/photos and
- * /manage/[slug]/settings, which is the basis for the paths below. Confirm
- * against the final route table before launch.
+ * INFERRED HREF: every mockup renders Settings as href="#" — the route was
+ * never resolved in the design pass. Build Brief §04 line 344 lists it under
+ * "Used by → Future" as /manage/[slug]/settings, which is the basis for the
+ * path below and is now the route that exists.
  */
 function contractorNavLinks(slug: string): readonly ContractorNavLink[] {
-  // Annotated rather than inferred: without it, .filter() widens `badge` from
-  // its literal type to string and the return type stops matching.
-  const all: readonly ContractorNavLink[] = [
-    { href: `/manage/${slug}`, label: "Profile", built: true },
-    { href: "/inquiries", label: "Inquiries", badge: "inquiries", built: true },
-    { href: `/manage/${slug}/photos`, label: "Photos", built: false },
-    { href: `/manage/${slug}/settings`, label: "Settings", built: false },
+  return [
+    { href: `/manage/${slug}`, label: "Profile" },
+    { href: "/inquiries", label: "Inquiries", badge: "inquiries" },
+    { href: `/manage/${slug}/settings`, label: "Settings" },
   ];
-  return all.filter((link) => link.built);
 }
 
 /**

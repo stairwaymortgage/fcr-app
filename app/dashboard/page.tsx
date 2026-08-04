@@ -25,9 +25,26 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { released?: string };
+}) {
   const user = await requireUser("/dashboard");
   const admin = isAdmin(user);
+
+  /**
+   * Where /manage/[slug]/settings sends a contractor after they release a
+   * profile — they cannot be sent back to the editor, which now 404s for them.
+   *
+   * The slug is rendered rather than looked up: after the release this user has
+   * no link to that row, so a query would return nothing. It is shape-checked
+   * because it arrives in the URL and is printed into the page.
+   */
+  const released =
+    searchParams.released && /^[a-z0-9-]{1,200}$/.test(searchParams.released)
+      ? searchParams.released
+      : null;
 
   return (
     <>
@@ -45,6 +62,30 @@ export default async function DashboardPage() {
             <strong className="font-semibold text-navy">{user.email}</strong>.
           </p>
 
+          {released && (
+            <div
+              role="status"
+              className="mb-8 border-l-[3px] border-l-status-success bg-status-successBg px-5 py-4"
+            >
+              <p className="mb-1.5 font-mono text-label font-semibold uppercase tracking-label text-status-success">
+                Profile released
+              </p>
+              <p className="text-note leading-[1.6] text-gray-700">
+                You no longer manage that listing, and your logo has been
+                deleted. Your About text and contact details are kept but hidden
+                &mdash; claiming it again restores them, though it needs a fresh
+                ID check.{" "}
+                <Link
+                  href={`/contractor/${released}`}
+                  className="text-navy underline decoration-gold underline-offset-2"
+                >
+                  See how it looks now
+                </Link>
+                .
+              </p>
+            </div>
+          )}
+
           <div className="border border-gray-200 bg-paper-raised px-6 py-5">
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-note">
               <dt className="font-mono text-label font-semibold uppercase tracking-label text-gray-500">
@@ -58,14 +99,22 @@ export default async function DashboardPage() {
             </dl>
           </div>
 
+          {/* The copy that used to live here said claiming, editing and the
+              inquiries inbox "are being built. Nothing here yet." All three
+              shipped in tasks 145-147, and this is where a contractor lands
+              after releasing a profile — so it was both stale and the first
+              thing they would read. */}
           <div className="mt-8 border-l-[3px] border-l-gold bg-gray-50 px-5 py-4">
             <p className="mb-2 font-mono text-label font-semibold uppercase tracking-label text-navy">
-              Coming next
+              Your portal
             </p>
             <p className="text-note leading-[1.6] text-gray-700">
-              Claiming your profile, editing your listing, and your inquiries
-              inbox are being built. Nothing here yet — this page confirms your
-              sign-in works.
+              Once a profile is verified as yours you can edit your listing,
+              upload a logo, and read homeowner inquiries. Find your business on{" "}
+              <Link href="/search" className="text-navy underline decoration-gold underline-offset-2">
+                the contractor search
+              </Link>{" "}
+              to claim it.
             </p>
           </div>
 
