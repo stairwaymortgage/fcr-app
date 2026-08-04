@@ -1,0 +1,194 @@
+/**
+ * Inquiries inbox — shared definitions.
+ *
+ * Imported by app/inquiries/page.tsx and app/inquiries/actions.ts, so the two
+ * cannot disagree about what a tab is called or which statuses belong to it.
+ * Deliberately free of "server-only" and of any Supabase import: it holds
+ * vocabulary and pure functions, nothing privileged.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ONE COLUMN CARRIES THE WHOLE FLOW.
+ *
+ * inquiries.status is a single text column — 'unread' | 'read' | 'replied' |
+ * 'archived' — with a CHECK constraint and no companion timestamps. There is no
+ * read_at and no archived_at; only replied_at exists.
+ *
+ * THE CONSEQUENCE, AND IT IS NOT A BUG TO BE ROUTED AROUND: archiving a replied
+ * inquiry overwrites 'replied', so the tabs cannot show "replied" and "archived"
+ * as independent facts. replied_at survives (set_own_inquiry_status() never
+ * clears it), which is why the detail pane reads the reply state from
+ * replied_at rather than from status.
+ *
+ * Adding read_at / archived_at would be a schema change, and the task is
+ * explicitly "read/archive flow per schema". If a future build wants the two
+ * axes separately, that is the migration to write — not a second status column
+ * and not a JSON blob.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/** Mirrors the CHECK constraint on inquiries.status. */
+export const INQUIRY_STATUSES = ["unread", "read", "replied", "archived"] as const;
+
+export type InquiryStatus = (typeof INQUIRY_STATUSES)[number];
+
+export interface InquiryRow {
+  id: string;
+  contractor_dbpr_sync_key: string;
+  from_name: string;
+  from_email: string;
+  from_phone: string | null;
+  message: string;
+  status: InquiryStatus;
+  replied_at: string | null;
+  created_at: string;
+}
+
+/**
+ * The three tabs, in the mockup's order: New / All / Archived
+ * (contractor_inquiries.html:657-661).
+ *
+ * "ALL" MEANS "EVERYTHING NOT ARCHIVED", not literally everything. That reads
+ * like a contradiction and is the standard mail-client meaning — archiving is
+ * how a contractor takes something out of the working set, so a tab that put it
+ * straight back would make the Archive button do nothing visible. The mockup
+ * agrees numerically: it shows New 3 / All 14 with an Archived tab carrying no
+ * count, so its All is not a superset of Archived.
+ */
+export const INQUIRY_TABS = ["new", "all", "archived"] as const;
+
+export type InquiryTab = (typeof INQUIRY_TABS)[number];
+
+/** Statuses each tab lists. The list query filters with `.in()` on these. */
+export const TAB_STATUSES: Record<InquiryTab, readonly InquiryStatus[]> = {
+  new: ["unread"],
+  all: ["unread", "read", "replied"],
+  archived: ["archived"],
+};
+
+export const TAB_LABEL: Record<InquiryTab, string> = {
+  new: "New",
+  all: "All",
+  archived: "Archived",
+};
+
+/** ?tab= arrives from the URL, so it is a string until proven otherwise. */
+export function parseTab(value: string | undefined): InquiryTab {
+  return (INQUIRY_TABS as readonly string[]).includes(value ?? "")
+    ? (value as InquiryTab)
+    : "new";
+}
+
+/**
+ * ?q= is interpolated into a PostgREST `.or()` filter, which is a STRING GRAMMAR
+ * — commas separate the filters, parentheses group them, and dots separate
+ * column from operator from value. A raw query string is therefore not a search
+ * term, it is syntax: `a,b` silently becomes two filters, and an unbalanced
+ * paren makes the whole request 400.
+ *
+ * So this is an allowlist, not an escape function. Letters, digits, spaces and
+ * the handful of punctuation marks that appear inside real names and email
+ * addresses survive; everything else is dropped rather than encoded, because
+ * there is no encoding that PostgREST would decode back.
+ *
+ * `%` and `_` are dropped for the same reason a step further in: they are LIKE
+ * wildcards, so a search for "50%" would otherwise match everything.
+ *
+ * 60 characters because a search box is not an input channel for the database —
+ * nobody types a longer name than that, and the cap bounds the pattern the
+ * planner has to run against every row.
+ */
+export function sanitizeSearch(value: string | undefined): string {
+  return (value ?? "")
+    .replace(/[^a-zA-Z0-9 @.'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
+/**
+ * "9 min ago" / "2 hr ago" / "Yesterday" / "3 days ago" / "May 18" — the five
+ * shapes the mockup's list rows use (contractor_inquiries.html:676-746).
+ *
+ * COMPUTED AT RENDER, WHICH IS ONLY SAFE BECAUSE THIS PAGE IS NEVER CACHED. It
+ * reads the session on every request, so there is no cached HTML to go stale.
+ * If any part of this route is ever made static, these strings freeze at build
+ * time — move the arithmetic to the client then, or drop to absolute dates.
+ */
+export function relativeTime(iso: string, now: Date = new Date()): string {
+  const then = new Date(iso);
+  const minutes = Math.floor((now.getTime() - then.getTime()) / 60000);
+
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+
+  // Calendar days apart, not 24-hour blocks: something sent at 11pm is
+  // "Yesterday" at 1am, which is what a person means by the word.
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfThen = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const days = Math.round(
+    (startOfToday.getTime() - startOfThen.getTime()) / 86_400_000,
+  );
+
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+
+  return then.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    // The year only when it is not this one — "May 18" for recent mail,
+    // "May 18, 2025" once it is old enough for the ambiguity to matter.
+    ...(then.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
+/** Full timestamp for the detail header and for the rows' title attribute. */
+export function absoluteTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    dateStyle: "long",
+    timeStyle: "short",
+  });
+}
+
+/**
+ * The two-line snippet under a name in the list.
+ *
+ * Clamped in CSS as well (line-clamp-2). Both are needed: the CSS decides what
+ * is VISIBLE, this decides what is SENT — without it a 2,000-character message
+ * ships in full inside every row of the HTML, which is the whole inbox's worth
+ * of body text for two lines of display.
+ */
+export function snippet(message: string, max = 160): string {
+  const oneLine = message.replace(/\s+/g, " ").trim();
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`;
+}
+
+/**
+ * The mailto: the Reply button opens.
+ *
+ * REPLY IS THE CONTRACTOR'S OWN MAIL CLIENT, DELIBERATELY. There is no in-app
+ * messaging: it would need a thread model, a delivery path, a moderation story
+ * and a way for a homeowner with no account to answer. A mailto: puts the
+ * contractor's real address in front of the homeowner, which is what both sides
+ * want, and it is the same decision the profile page made when it chose a
+ * contact form over an account.
+ *
+ * The subject is prefilled and the body is not. A prefilled body would be a
+ * templated greeting the contractor did not write, sent under their name to a
+ * homeowner who is choosing between contractors partly on how they write.
+ */
+export function replyMailto(inquiry: Pick<InquiryRow, "from_email" | "from_name">, businessName: string): string {
+  const subject = `Re: your inquiry to ${businessName}`;
+  return `mailto:${encodeURIComponent(inquiry.from_email)}?subject=${encodeURIComponent(subject)}`;
+}
+
+/**
+ * tel: for the phone button. Strips everything a dialler cannot use — the
+ * stored value is free text from the contact form ("(954) 555-0287"), and
+ * spaces and parentheses in a tel: URI are legal but not universally handled.
+ */
+export function telHref(phone: string): string {
+  return `tel:${phone.replace(/[^\d+]/g, "")}`;
+}

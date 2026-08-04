@@ -58,8 +58,13 @@ export interface ContractorHeaderProps {
   userInitials: string;
 
   /**
-   * count(inquiries) WHERE contractor_id = current AND read_at IS NULL.
-   * Badge hidden when 0 or absent.
+   * count(inquiries) WHERE contractor_dbpr_sync_key IN (the viewer's claimed
+   * profiles) AND status = 'unread'. Badge hidden when 0 or absent.
+   *
+   * THERE IS NO read_at COLUMN — an earlier draft of this comment said there
+   * was. inquiries.status is one text column carrying the whole flow
+   * ('unread' | 'read' | 'replied' | 'archived'); only replied_at exists
+   * alongside it. See lib/inquiries.ts for what that costs.
    */
   unreadInquiries?: number;
 }
@@ -79,7 +84,8 @@ type ContractorNavLink = {
    * cannot have it", which is a different and equally wrong message.
    *
    * DELETE THE FLAG, NOT THE LINK, when the route lands: photos in task 146,
-   * settings in 148. Both hrefs below are already correct.
+   * settings in 148. Both hrefs below are already correct. Inquiries landed in
+   * task 147 and its flag is gone.
    */
   built: boolean;
 };
@@ -103,7 +109,7 @@ function contractorNavLinks(slug: string): readonly ContractorNavLink[] {
   // its literal type to string and the return type stops matching.
   const all: readonly ContractorNavLink[] = [
     { href: `/manage/${slug}`, label: "Profile", built: true },
-    { href: "/inquiries", label: "Inquiries", badge: "inquiries", built: false },
+    { href: "/inquiries", label: "Inquiries", badge: "inquiries", built: true },
     { href: `/manage/${slug}/photos`, label: "Photos", built: false },
     { href: `/manage/${slug}/settings`, label: "Settings", built: false },
   ];

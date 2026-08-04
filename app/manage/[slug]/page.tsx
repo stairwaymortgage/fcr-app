@@ -71,6 +71,34 @@ export default async function ManageProfilePage({
     : formatPersonName(contractor.qualifying_agent_name);
 
   /**
+   * The nav badge, now that /inquiries exists (147).
+   *
+   * COUNTED ACROSS EVERY PROFILE THIS USER HAS CLAIMED, not just the one being
+   * edited — the badge links to /inquiries, which is one flat inbox spanning all
+   * of them, and a number that disagreed with the page it points at would be
+   * worse than no number. Hence the join filter rather than an eq on this
+   * profile's sync key.
+   *
+   * The ownership test is written out even though RLS already restricts these
+   * rows to the same set: RLS filters rows, it does not stop this page asking
+   * for a count over the whole table. Same reasoning as app/inquiries/page.tsx.
+   *
+   * A failed count is not an error page. The badge simply does not render.
+   */
+  const { count: unread, error: unreadError } = await db
+    .from("inquiries")
+    .select("id, contractors!inner(claimed_by_user_id)", {
+      count: "exact",
+      head: true,
+    })
+    .eq("contractors.claimed_by_user_id", user.id)
+    .eq("status", "unread");
+
+  if (unreadError) {
+    console.error("[manage] unread inquiry count failed", unreadError.message);
+  }
+
+  /**
    * The header wants a name and initials rather than deriving them, because
    * derivation breaks on single-word names and suffixes. A passwordless session
    * may carry no full_name at all, so the email local part is the fallback —
@@ -89,9 +117,7 @@ export default async function ManageProfilePage({
         contractorSlug={params.slug}
         userName={displayName}
         userInitials={initialsFor(displayName)}
-        // unreadInquiries is deliberately absent until /inquiries exists (147).
-        // The badge hides at zero, so passing a fake count would be the only way
-        // to get it wrong.
+        unreadInquiries={unread ?? 0}
       />
 
       <main id="main" className="min-h-screen bg-gray-100">
