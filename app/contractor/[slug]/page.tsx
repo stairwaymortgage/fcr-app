@@ -24,6 +24,7 @@ import {
 } from "@/lib/contractor-profile";
 import { endSentence } from "@/lib/format-name";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
+import { logoPublicUrl } from "@/lib/logo";
 import { DATA_AS_OF } from "@/lib/registry-stats";
 import { createClient } from "@/lib/supabase/server";
 
@@ -262,8 +263,29 @@ function Hero({
     .filter(Boolean)
     .join(", ");
 
-  return (
-    <div className="mb-9 border-b border-gray-200 pb-9">
+  /**
+   * The contractor's own logo, if they have uploaded one (task 146).
+   *
+   * ═══════════════════════════════════════════════════════════════════════════
+   * RENDERED ONLY WHEN ONE EXISTS. NO PLACEHOLDER HERE.
+   *
+   * The editor shows a navy-and-gold initial in this slot, and that is right
+   * THERE: it is the thing the upload control is offering to replace. On this
+   * page it would be decoration implying an identity mark the business has not
+   * got — and it would change the appearance of all 266,000 unclaimed profiles
+   * to advertise a feature only claimed ones can use.
+   *
+   * So an absent logo renders nothing at all and the header keeps its existing
+   * layout exactly. The <img> is deliberately not next/image: the optimizer
+   * would put a second cache in front of a file the contractor can delete, and
+   * a logo that survives its own removal is the one failure this must not have.
+   * The bucket's CDN already serves it.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  const logoUrl = logoPublicUrl(contractor.custom_logo_path);
+
+  const identity = (
+    <>
       <p
         className={`mb-[18px] inline-flex items-center gap-2 px-[11px] py-[5px] text-[11.5px] font-semibold uppercase tracking-[0.06em] ${
           current ? "bg-gray-100 text-gray-700" : "bg-status-errorBg text-status-error"
@@ -283,6 +305,30 @@ function Hero({
       <h1 className="mb-3.5 font-serif text-5xl font-semibold leading-[1.07] tracking-[-0.025em] text-ink max-[900px]:text-[34px]">
         {name}
       </h1>
+    </>
+  );
+
+  return (
+    <div className="mb-9 border-b border-gray-200 pb-9">
+      {logoUrl ? (
+        <div className="flex items-start gap-[22px] max-[560px]:flex-col max-[560px]:gap-4">
+          <div className="relative h-[90px] w-[90px] shrink-0 bg-gradient-to-br from-navy to-navy-deep">
+            {/* eslint-disable-next-line @next/next/no-img-element -- see above */}
+            <img
+              src={logoUrl}
+              alt={`${name} logo`}
+              className="h-full w-full object-cover"
+            />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-1 border border-gold"
+            />
+          </div>
+          <div>{identity}</div>
+        </div>
+      ) : (
+        identity
+      )}
 
       {/* Assembled only from fields the row actually carries — see the note at
           the top of this file about the mockup's invented prose. */}

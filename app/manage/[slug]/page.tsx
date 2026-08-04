@@ -11,8 +11,10 @@ import {
   type ContractorProfile,
 } from "@/lib/contractor-profile";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
+import { logoInitial, logoPublicUrl } from "@/lib/logo";
 import { createClient } from "@/lib/supabase/server";
 
+import LogoUploader from "./LogoUploader";
 import ProfileForm from "./ProfileForm";
 
 /**
@@ -154,6 +156,20 @@ export default async function ManageProfilePage({
           <div className="grid grid-cols-2 gap-6 max-[1200px]:grid-cols-1">
             <div className="flex flex-col gap-5">
               <LockedCard contractor={contractor} />
+
+              {/* The mockup puts this section BETWEEN About and Contact
+                  (manage_profile.html:756). ProfileForm holds both of those in
+                  one form with one Save, so slotting a separate component into
+                  its middle would mean splitting that form — and a second Save
+                  button is a worse outcome than a different order. Placed above
+                  it instead, where it reads as part of the same "how your
+                  profile looks" group as the licence card. */}
+              <LogoUploader
+                dbprSyncKey={contractor.dbpr_sync_key}
+                businessName={name}
+                currentPath={contractor.custom_logo_path}
+              />
+
               <ProfileForm
                 saved={{
                   dbprSyncKey: contractor.dbpr_sync_key,
@@ -280,6 +296,8 @@ function Preview({
   contractor: ContractorProfile;
   name: string;
 }) {
+  const previewLogoUrl = logoPublicUrl(contractor.custom_logo_path);
+
   const paragraphs = (contractor.custom_about_text ?? "")
     .split("\n")
     .map((p) => p.trim())
@@ -309,12 +327,45 @@ function Preview({
 
       <div className="max-h-[calc(100vh-160px)] overflow-y-auto border border-gray-300 bg-paper max-[1200px]:max-h-none">
         <div className="border-b border-gray-200 bg-paper px-7 py-8">
-          <p className="mb-2 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
-            Verified contractor
-          </p>
-          <h3 className="mb-1 font-serif text-[24px] font-semibold leading-[1.15] tracking-[-0.015em] text-navy">
-            {name}
-          </h3>
+          {/* 90x90 beside the name, matching .mini-profile-logo in the mockup
+              (manage_profile.html:496-514). Shown even with no logo, because
+              here the placeholder is doing a job — it is what the section above
+              is offering to replace. The public profile makes the opposite
+              call and renders nothing. */}
+          <div className="mb-4 flex items-start gap-[22px]">
+            <div className="relative h-[90px] w-[90px] shrink-0 bg-gradient-to-br from-navy to-navy-deep">
+              {previewLogoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element --
+                   Same reason as the uploader's: no second cache in front of an
+                   image the contractor expects to be able to replace. */
+                <img
+                  src={previewLogoUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="flex h-full w-full items-center justify-center font-serif text-4xl font-bold italic text-gold"
+                >
+                  {logoInitial(name)}
+                </span>
+              )}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-1 border border-gold"
+              />
+            </div>
+
+            <div>
+              <p className="mb-2 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
+                Verified contractor
+              </p>
+              <h3 className="font-serif text-[24px] font-semibold leading-[1.15] tracking-[-0.015em] text-navy">
+                {name}
+              </h3>
+            </div>
+          </div>
           <p className="mb-2 text-note text-gray-700">
             {formatPersonName(contractor.qualifying_agent_name)}, Qualifying Agent
             {contractor.city && ` · ${formatBusinessName(contractor.city)}, FL`}

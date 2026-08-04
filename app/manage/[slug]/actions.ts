@@ -1,8 +1,17 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 
 import { getUser } from "@/lib/auth";
+import {
+  LOGO_BUCKET,
+  LOGO_EXTENSIONS,
+  LOGO_MAX_BYTES,
+  LOGO_MIME_TYPES,
+} from "@/lib/logo";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 import type { EditableValues, SaveState } from "./save-state";
@@ -126,6 +135,192 @@ export async function saveProfile(
     revalidatePath(`/contractor/${slug}`);
     revalidatePath(`/manage/${slug}`);
   }
+
+  return { ok: true, error: null };
+}
+
+
+/**
+ * ===========================================================================
+ * THE LOGO
+ *
+ * THE FILE GOES BROWSER → STORAGE, NOT THROUGH A SERVER ACTION. Same route the
+ * claim flow takes and for the same two reasons (ClaimForm.tsx:26-36): action
+ * bodies are capped at 1 MB by default, and there is no value in streaming
+ * image bytes through the app server on their way to a bucket.
+ *
+ *   1. createLogoUploadTarget() — the server checks ownership, builds the path
+ *      from the profile's OWN slug, and mints a one-shot upload token.
+ *   2. the browser PUTs the bytes to that URL.
+ *   3. saveUploadedLogo() — records the path through the RPC and deletes the
+ *      object it displaced.
+ *
+ * NO PART OF THE PATH IS CLIENT-SUPPLIED, which is stronger than validating a
+ * path the client chose. Step 3 re-checks ownership inside the database anyway,
+ * via assert_own_photo_path().
+ *
+ * ⚠ A SIGNED UPLOAD URL BYPASSES RLS — it is authorised by its token, not by
+ * the caller's role. That is why there are no storage policies on this bucket
+ * and why step 1 is the ownership boundary. See §3 of
+ * db/migrations/20260804_contractor_logo.sql.
+ * ===========================================================================
+ */
+
+/** What the uploader gets back. A failure is a sentence, never a raw error. */
+type UploadTarget =
+  | { ok: true; path: string; token: string }
+  | { ok: false; error: string };
+
+/**
+ * Resolve a sync key to a profile this user actually manages.
+ *
+ * Returns the slug, because the slug is the storage folder and it must come
+ * from the database rather than from the caller — a client-supplied slug is
+ * exactly how a contractor would write into someone else's folder.
+ */
+async function ownedSlug(
+  syncKey: string,
+): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "Your session has expired. Sign in again." };
+
+  const db = createClient();
+  const { data, error } = await db
+    .from("contractors")
+    .select("slug, claimed_by_user_id")
+    .eq("dbpr_sync_key", syncKey)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[manage] logo ownership lookup failed", error.message);
+    return { ok: false, error: "Something went wrong. Please try again." };
+  }
+
+  // One message for "no such profile" and "not yours", so this cannot be used
+  // to probe which profiles exist or have owners. Same rule as the RPC's.
+  if (!data || data.claimed_by_user_id !== user.id || !data.slug) {
+    return { ok: false, error: "You do not manage this profile." };
+  }
+
+  return { ok: true, slug: data.slug };
+}
+
+export async function createLogoUploadTarget(input: {
+  syncKey: string;
+  mimeType: string;
+  size: number;
+}): Promise<UploadTarget> {
+  const owned = await ownedSlug(input.syncKey);
+  if (!owned.ok) return owned;
+
+  /**
+   * Re-checked here even though the uploader checked first and the bucket
+   * checks last. This is the layer that decides the FILENAME's extension, so a
+   * type it does not recognise must not reach the switch below and default to
+   * something plausible.
+   */
+  if (!(LOGO_MIME_TYPES as readonly string[]).includes(input.mimeType)) {
+    return { ok: false, error: "That file type isn't accepted. Use a JPG, PNG or WEBP image." };
+  }
+  if (!Number.isFinite(input.size) || input.size <= 0 || input.size > LOGO_MAX_BYTES) {
+    return { ok: false, error: "That image is larger than 2 MB." };
+  }
+
+  /**
+   * A FRESH UUID EVERY TIME, never a fixed name like "logo.jpg".
+   *
+   * Two reasons, both load-bearing. The bucket is public and therefore
+   * CDN-cached, so re-using a path would keep serving the OLD image after a
+   * replacement — indistinguishable from "the upload didn't work". And there is
+   * no UPDATE policy anywhere on this bucket, so a path that already holds an
+   * object cannot be written again at all.
+   */
+  const ext = LOGO_EXTENSIONS[input.mimeType] ?? "jpg";
+  const path = `${owned.slug}/logo-${randomUUID()}.${ext}`;
+
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage.from(LOGO_BUCKET).createSignedUploadUrl(path);
+
+  if (error || !data) {
+    console.error("[manage] could not create logo upload URL", { message: error?.message });
+    return { ok: false, error: "We couldn't start the upload. Please try again." };
+  }
+
+  return { ok: true, path, token: data.token };
+}
+
+/**
+ * Record an uploaded logo, and remove the one it replaced.
+ *
+ * THE DELETE IS BEST-EFFORT AND THE SAVE IS NOT. If the object cannot be
+ * removed, the contractor still has the logo they just uploaded and the profile
+ * is correct; what is left behind is an unreferenced file in a bucket. Failing
+ * the whole action over that would report a problem the contractor cannot act
+ * on, about an outcome that already succeeded.
+ */
+export async function saveUploadedLogo(input: {
+  syncKey: string;
+  path: string;
+}): Promise<{ ok: boolean; error: string | null }> {
+  return writeLogoPath(input.syncKey, input.path);
+}
+
+/** Remove the logo entirely. A plain <form action> — no client JS required. */
+export async function clearLogo(formData: FormData): Promise<void> {
+  const syncKey = String(formData.get("dbpr_sync_key") ?? "");
+  await writeLogoPath(syncKey, null);
+}
+
+/**
+ * The one place either of the above writes.
+ *
+ * The RPC returns the PATH IT DISPLACED — Postgres cannot delete a storage
+ * object, so without this the previous logo would sit in a public bucket
+ * forever, still served at its old URL.
+ */
+async function writeLogoPath(
+  syncKey: string,
+  path: string | null,
+): Promise<{ ok: boolean; error: string | null }> {
+  const owned = await ownedSlug(syncKey);
+  if (!owned.ok) return { ok: false, error: owned.error };
+
+  const db = createClient();
+  const { data: displaced, error } = await db.rpc("set_own_contractor_image", {
+    p_dbpr_sync_key: syncKey,
+    p_kind: "logo",
+    p_path: path,
+  });
+
+  if (error) {
+    console.warn("[manage] logo save refused", { code: error.code, message: error.message });
+    return {
+      ok: false,
+      // The RPC's own messages are sentences written for a contractor to read
+      // ("Your logo must be a JPG, PNG or WEBP file."). Anything else is
+      // unplanned and gets a generic line — an unexpected Postgres error is
+      // written for an operator and can name internals.
+      error: READABLE_CODES.has(error.code ?? "")
+        ? error.message
+        : "That didn't save. Please try again in a moment.",
+    };
+  }
+
+  if (typeof displaced === "string" && displaced.length > 0) {
+    const admin = createAdminClient();
+    const { error: removeError } = await admin.storage.from(LOGO_BUCKET).remove([displaced]);
+    if (removeError) {
+      // Loud, because the leak is invisible from the app: nothing references
+      // this object any more, so nothing will ever surface it again.
+      console.error("[manage] orphaned logo object — delete it by hand", {
+        path: displaced,
+        message: removeError.message,
+      });
+    }
+  }
+
+  revalidatePath(`/contractor/${owned.slug}`);
+  revalidatePath(`/manage/${owned.slug}`);
 
   return { ok: true, error: null };
 }

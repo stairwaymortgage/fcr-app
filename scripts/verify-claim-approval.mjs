@@ -256,9 +256,53 @@ try {
     ok("photo exists in the private bucket only", count >= 1, `${count} object(s) in ${u.user.id}/`);
   }
   {
+    /**
+     * ⚠ THIS USED TO READ "no other bucket exists to copy it into", asserting
+     * buckets.length === 1. That was right until 20260804_contractor_photo_
+     * buckets.sql added two PUBLIC buckets for contractor logos and portfolio
+     * photos, at which point it fails on a correct database.
+     *
+     * It is narrowed rather than deleted, and the distinction matters: an
+     * assertion that goes red on a legitimate change gets commented out, and
+     * commenting this one out would remove the only automated statement anywhere
+     * that an ID photo has not ended up somewhere public. Counting buckets was
+     * never the question — "can this photo be fetched without a token" is.
+     *
+     * So: id-photos must still be private, any bucket we do not recognise is
+     * still a failure, and the photo must not be servable from a public bucket.
+     */
     const { data: buckets } = await admin.storage.listBuckets();
-    ok("no other bucket exists to copy it into", buckets.length === 1 && buckets[0].id === "id-photos",
-       buckets.map((b) => `${b.id}(public=${b.public})`).join(", "));
+    const summary = buckets.map((b) => `${b.id}(public=${b.public})`).join(", ");
+
+    const idPhotos = buckets.find((b) => b.id === "id-photos");
+    ok("id-photos still exists and is still private",
+       !!idPhotos && idPhotos.public === false, summary);
+
+    // Every bucket this project deliberately created. A bucket appearing that
+    // is not on this list is either a mistake or someone else's work, and both
+    // are worth stopping for.
+    const KNOWN = new Set(["id-photos", "contractor-logos", "contractor-portfolio"]);
+    const unknown = buckets.filter((b) => !KNOWN.has(b.id));
+    ok("no unrecognised bucket exists", unknown.length === 0,
+       unknown.length ? unknown.map((b) => b.id).join(", ") : summary);
+
+    ok("no bucket other than id-photos holds ID photos, and id-photos is not public",
+       buckets.every((b) => (b.id === "id-photos") !== b.public), summary);
+
+    /**
+     * The exposure question itself, asked of the live API: is this claim's
+     * photo — at its real path — fetchable with no token from any public
+     * bucket? A public bucket ignores RLS on read, so this is the only way to
+     * ask that does not depend on a policy being correct.
+     */
+    const leaked = [];
+    for (const b of buckets.filter((x) => x.public)) {
+      const { data: pub } = admin.storage.from(b.id).getPublicUrl(path);
+      const r = await fetch(pub.publicUrl);
+      if (r.ok) leaked.push(`${b.id} served it (HTTP ${r.status})`);
+    }
+    ok("the ID photo is not servable from any public bucket", leaked.length === 0,
+       leaked.join("; ") || `checked ${buckets.filter((x) => x.public).length} public bucket(s)`);
   }
   {
     const { data: signed } = await admin.storage.from("id-photos").createSignedUrl(path, 300);
