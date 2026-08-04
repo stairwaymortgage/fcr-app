@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import AdminHeader from "@/components/AdminHeader";
 import { requireAdmin } from "@/lib/auth";
 import { CLAIM_ROLES, ID_PHOTO_BUCKET, oneRelation } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
@@ -75,7 +76,7 @@ export default async function AdminClaimsPage({
 }: {
   searchParams: { error?: string; ok?: string };
 }) {
-  await requireAdmin();
+  const user = await requireAdmin();
 
   /**
    * Read with the ADMIN client. RLS would allow an admin session to read claims
@@ -126,7 +127,27 @@ export default async function AdminClaimsPage({
       .filter((k, i, arr) => arr.indexOf(k) !== i),
   );
 
+  const displayName =
+    (user.user_metadata?.full_name as string | undefined)?.trim() ||
+    (user.email ?? "").split("@")[0] ||
+    "Admin";
+
   return (
+    <>
+      {/* Added in task 155, when /admin/leads made this the second admin page.
+          Until then AdminHeader was dead code and this page had no navigation
+          at all — which was fine while there was nowhere to navigate to, and
+          stopped being fine the moment there was. Additive: the navy bar sits
+          above the title bar below, exactly as ContractorHeader does on
+          /manage. The sign-out stays on the page; the mockup renders the
+          header's user chip as static, with no menu behind it. */}
+      <AdminHeader
+        currentPath="/admin/claims"
+        userName={displayName}
+        userInitials={initialsFor(displayName)}
+        pendingClaims={claims.length}
+      />
+
     <main id="main" className="min-h-screen bg-paper">
       <div className="mx-auto max-w-[1100px] px-6 py-10 max-[700px]:px-4">
         <div className="mb-8 flex items-end justify-between gap-4 border-b border-gray-200 pb-5">
@@ -419,7 +440,16 @@ export default async function AdminClaimsPage({
         )}
       </div>
     </main>
+    </>
   );
+}
+
+/** "Jim Blackburn" -> "JB". Same helper as every other portal page. */
+function initialsFor(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2);
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`;
 }
 
 function Row({

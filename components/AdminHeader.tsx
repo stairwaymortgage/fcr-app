@@ -46,7 +46,14 @@ export interface AdminHeaderProps {
   /** count(claims) WHERE status = 'pending'. Badge hidden when 0 or absent. */
   pendingClaims?: number;
 
-  /** Unread lead count. Badge hidden when 0 or absent. */
+  /**
+   * count(leads) WHERE status = 'new'. Badge hidden when 0 or absent.
+   *
+   * THERE IS NO "UNREAD" ON A LEAD — an earlier draft of this comment said
+   * "unread lead count". leads.status is one column carrying the concierge
+   * workflow ('new' | 'contacted' | 'in_progress' | 'closed_won' |
+   * 'closed_lost'); 'new' is the one that means nobody has picked it up.
+   */
   pendingLeads?: number;
 }
 
@@ -58,18 +65,39 @@ type AdminNavLink = {
 };
 
 /**
- * Five sections, this order. Verified identical across admin_header.html and
- * the four current 08_admin/ pages.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TWO LINKS, THOUGH THE MOCKUP SHOWS FIVE — AND THE OTHER THREE ARE LISTED
+ * HERE RATHER THAN RENDERED.
  *
- * admin_claim_review.html shows only four links (no /admin/sync) with href="#"
- * throughout — it is the oldest mockup of the set and is treated as stale.
+ * admin_header.html and the four 08_admin/ pages all show Claims · Leads ·
+ * Contractors · DBPR Sync · Settings. Only two of those routes exist:
+ *
+ *   /admin/claims     built in task 144
+ *   /admin/leads      built in task 155 — the reason this component stopped
+ *                     being dead code, having had zero imports until now
+ *
+ * NOT BUILT, hrefs recorded so the next person does not have to re-derive them
+ * from the mockups:
+ *
+ *   /admin/contractors   a browse/search view over 266,305 rows
+ *   /admin/sync          DBPR sync history — sync_runs has the table already
+ *   /admin/settings      admin_settings.html: sync cadence, integrations,
+ *                        team members, danger zone
+ *
+ * ADD THE ENTRY WHEN THE ROUTE LANDS, not before. ContractorHeader carried a
+ * `built: boolean` for exactly this and it was deleted in 148 once the last
+ * unbuilt route went away; the lesson recorded there is that a nav link
+ * pointing at a 404 is the worst possible first impression of a tool someone
+ * has been told to trust, and that hiding beats disabling. Three dead links in
+ * a five-link bar would be most of it.
+ *
+ * The badge props for the unbuilt links are absent for the same reason — there
+ * is nothing to count until there is somewhere to go.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 const NAV_LINKS: readonly AdminNavLink[] = [
   { href: "/admin/claims", label: "Claims", badge: "claims" },
   { href: "/admin/leads", label: "Leads", badge: "leads" },
-  { href: "/admin/contractors", label: "Contractors" },
-  { href: "/admin/sync", label: "DBPR Sync" },
-  { href: "/admin/settings", label: "Settings" },
 ];
 
 /**
