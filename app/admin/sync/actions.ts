@@ -95,11 +95,14 @@ export async function queueRefresh(): Promise<void> {
      */
     triggered_by_user_id: user.id,
     /**
-     * NULL, NOT THE COLUMN DEFAULT. sync_runs.source_url defaults to the DBPR
-     * download URL, and a queued row stamping that would assert on screen that
-     * a refresh nobody has run came from a source nobody has verified — the
-     * open question holding task 158. The importer records the file it actually
-     * read, when it reads it.
+     * NULL, NOT THE COLUMN DEFAULT. A queued row has not read anything yet, so
+     * it has no source to report; the importer records the file it actually
+     * opened, when it opens it.
+     *
+     * The default is doubly wrong to stamp here. It asserts a fetch that has
+     * not happened, and its host (the bare myfloridalicense.com) serves no
+     * files at all — it redirects to www2. See scripts/import-dbpr.mjs and
+     * docs/dbpr-source.md.
      */
     source_url: null,
   });

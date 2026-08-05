@@ -73,11 +73,17 @@ import { queueRefresh } from "./actions";
  *     trigger is HELD pending the question of where the CSV actually comes
  *     from, and inventing a cadence on screen would answer it by accident.
  *
- * ⚠ THE SOURCE QUESTION IS VISIBLE ON PURPOSE. Each run records source_url, and
- * the importer writes the local file path rather than sync_runs' default DBPR
- * download URL, because that URL is a claim nobody has verified. The panel
- * renders whatever the row says. When the provenance is settled the rows will
- * say something else, and this page will not need editing.
+ * ⚠ THE SOURCE IS RENDERED FROM THE ROW, NEVER ASSUMED. Each run records the
+ * source it actually read; the importer writes the local file path rather than
+ * sync_runs' default DBPR URL, because no fetch happens. The panel renders
+ * whatever the row says, so when a --download run starts recording a real URL
+ * this page will not need editing.
+ *
+ * Provenance is settled and written up in docs/dbpr-source.md: DBPR publishes
+ * the extract weekly at www2.myfloridalicense.com, and that host sits behind a
+ * Cloudflare managed challenge that refuses automated requests. The panel says
+ * so, because "why is this still manual?" is the first question this page
+ * invites and the answer is not a matter of anyone's priorities.
  */
 
 export const metadata: Metadata = {
@@ -475,12 +481,16 @@ export default async function AdminSyncPage({
                       <strong className="font-semibold text-ink">
                         This run read a local file, not DBPR.
                       </strong>{" "}
-                      The extract was handed to us and committed to the repository;
-                      where it was downloaded from, and on what date it was
-                      published, is an open question. Automating the refresh is
-                      held until that is answered — a schedule that re-downloads
-                      from an unverified URL would make the provenance worse, not
-                      better.
+                      The extract is published by DBPR at{" "}
+                      <span className="break-all font-mono text-[12px]">
+                        www2.myfloridalicense.com/sto/file_download/extracts/CONSTRUCTIONLICENSE_1.csv
+                      </span>{" "}
+                      and refreshed there weekly, but that address sits behind a
+                      Cloudflare challenge that refuses automated requests — so
+                      the copy on disk was downloaded by a person, and no
+                      schedule can currently replace them. Whoever runs the
+                      importer is attesting that the file they have is the
+                      current one.
                     </p>
                   )}
 

@@ -251,12 +251,44 @@ async function loadFingerprints(db, onProgress) {
 /**
  * SOURCE IS THE LOCAL FILE, AND THE ROW SAYS SO.
  *
- * sync_runs.source_url defaults to the DBPR download URL, and writing that
- * default would be a claim this script cannot support: it reads a CSV that was
- * handed to us and committed under _handoff/07_source_data, and where that file
- * came from is the open question holding task 158's trigger (asking Adnan). A
- * file: URI is the true provenance until that is answered, and it keeps the
- * question visible on /admin/sync instead of burying it.
+ * This script reads a CSV from disk. Whatever that file's ultimate origin, the
+ * only thing THIS RUN can attest to is the path it opened — so that is what it
+ * records. sync_runs.source_url defaults to a DBPR download URL, and stamping
+ * that default would claim a network fetch that never happened.
+ *
+ * ⚠ WHERE THE FILE CAME FROM IS DOCUMENTED, AND AN EARLIER VERSION OF THIS
+ * COMMENT WAS WRONG ABOUT IT TWICE.
+ *
+ * It said the extract "was handed to us and committed under
+ * _handoff/07_source_data" and that its origin was an open question. Neither
+ * holds up:
+ *
+ *   · NOT COMMITTED. _handoff/ is in .gitignore (line 49) and has zero tracked
+ *     files. The CSV has no git provenance at all — it exists only on machines
+ *     someone copied it to.
+ *
+ *   · NOT UNKNOWN. _handoff/06_specifications/…_DBPR_Ingestion_Script.docx,
+ *     prepared May 2026, states it was "downloaded from the DBPR public records
+ *     portal", names the source URL, and says DBPR refreshes it weekly at the
+ *     same address. Its stated row count (266,312) matches this file exactly,
+ *     so that document was written from this extract.
+ *
+ * THE CANONICAL URL, and the env var name for it when --download lands:
+ *
+ *     DBPR_CSV_URL=https://www2.myfloridalicense.com/sto/file_download/extracts/CONSTRUCTIONLICENSE_1.csv
+ *
+ * Three hostnames appear across the handoff and only www2 is live. Measured
+ * 2026-08-05: the bare host redirects (BigIP → www → www2) and serves no files;
+ * www.myfloridalicense.com is a separate IIS server that 404s this path; www2
+ * is the current site. The DEFAULT on sync_runs.source_url uses the bare host
+ * and is therefore not a working file URL — do not copy it.
+ *
+ * ⚠ AND THE URL IS NOT FETCHABLE BY A SCRIPT TODAY. www2 sits behind a
+ * Cloudflare managed challenge — `Cf-Mitigated: challenge`, "Just a moment…",
+ * JavaScript required — applied site-wide, including the root and the
+ * human-facing public-records page. A plain fetch() gets 403 whether it runs
+ * from here, from Vercel, or from a CI runner. That is a constraint on any
+ * automated refresh, not a detail: see the note above --download.
  */
 const SOURCE_URI = `file:${CSV_PATH}`;
 
