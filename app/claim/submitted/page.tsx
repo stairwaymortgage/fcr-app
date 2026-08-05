@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { requireUser } from "@/lib/auth";
 import { oneRelation } from "@/lib/claims";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -23,6 +23,7 @@ export const metadata: Metadata = {
 
 export default async function ClaimSubmittedPage() {
   await requireUser("/claim/submitted");
+  const asOf = await dataAsOf();
 
   /**
    * RLS returns this user's own claims only ("claimant reads own claim"), so
@@ -43,7 +44,7 @@ export default async function ClaimSubmittedPage() {
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[560px] px-6 py-20 max-[700px]:py-12">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
@@ -87,7 +88,7 @@ export default async function ClaimSubmittedPage() {
           )}
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

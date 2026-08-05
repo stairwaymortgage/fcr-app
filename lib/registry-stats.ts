@@ -63,20 +63,23 @@
 export const CONTRACTOR_COUNT = 266305;
 
 /**
- * "Data as of …" — Header's statsTimestamp and Footer's lastSyncDate.
+ * "Data as of …" MOVED OUT OF THIS FILE — see lib/data-as-of.ts.
  *
- * A CONSTANT BECAUSE sync_runs IS EMPTY. The intended source is the newest
- * sync_runs row, but that table has zero rows: the initial import was run from
- * scripts/import-dbpr.mjs, which does not write an audit row. The weekly cron
- * will, and this constant should become that query when it does.
+ * It was `export const DATA_AS_OF = "May 24, 2026"`, and the docblock here said
+ * it should become a query "when the weekly cron writes a sync_runs row". Task
+ * 157 instrumented scripts/import-dbpr.mjs to write those rows, and the date is
+ * now derived from max(contractors.last_dbpr_sync_at) at request time.
  *
- * The two dates available from live data are both wrong to show a visitor:
- * max(last_dbpr_sync_at) is 2026-07-29, which is when WE imported, not when
- * DBPR published; and the extract's own date, embedded in every dbpr_sync_key,
- * is 05/22/2026. The mockups say May 24, 2026, so that ships unchanged rather
- * than inventing a third date.
+ * It lives in its own module rather than here because the derivation needs a
+ * database client, and this file is deliberately dependency-free: everything
+ * below is a plain number that any component, server or client, can import
+ * without dragging `server-only` in behind it.
+ *
+ * ⚠ NOTE WHAT CHANGED ON SCREEN. The derived value is 2026-07-29 — the date we
+ * imported — where the constant said 2026-05-24. Every public page moved with
+ * it. lib/data-as-of.ts records why that is the honest number and which copy
+ * had to be reworded to stay true of it.
  */
-export const DATA_AS_OF = "May 24, 2026";
 
 /** Florida counties. Fixed by geography; reference_counties seeds all 67. */
 export const COUNTY_COUNT = 67;

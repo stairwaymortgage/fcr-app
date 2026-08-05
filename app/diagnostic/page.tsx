@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 
 import DiagnosticWizard from "./DiagnosticWizard";
 
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: true },
 };
 
-export default function DiagnosticPage({
+export default async function DiagnosticPage({
   searchParams,
 }: {
   searchParams: { from?: string };
@@ -38,10 +38,11 @@ export default function DiagnosticPage({
   // Action validates it again before it is written.
   const raw = searchParams.from ?? "";
   const referringSlug = /^[a-z0-9-]{1,200}$/.test(raw) ? raw : undefined;
+  const asOf = await dataAsOf();
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
 
       <main className="bg-gradient-to-b from-paper to-[#faf6ed] px-8 pb-[88px] pt-12">
         <div className="mx-auto mb-10 max-w-[720px] text-center">
@@ -63,7 +64,7 @@ export default function DiagnosticPage({
         <DiagnosticWizard referringSlug={referringSlug} />
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

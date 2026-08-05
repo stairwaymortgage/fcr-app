@@ -4,7 +4,7 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import {
   MIN_QUERY_LENGTH,
   SEARCH_LIMIT,
@@ -480,6 +480,7 @@ export default async function SearchPage({
 }) {
   const parsed = parseQuery(searchParams.q);
   const db = createClient();
+  const asOf = await dataAsOf();
 
   // Reference lookups run alongside the searches rather than after them — they
   // do not depend on the results, only on the result cards needing names.
@@ -520,7 +521,7 @@ export default async function SearchPage({
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} searchQuery={parsed.raw} />
+      <Header statsTimestamp={asOf} searchQuery={parsed.raw} />
       <SearchContext query={parsed.raw} summary={summary} />
 
       <main className="mx-auto max-w-shell px-8 pb-[88px] pt-12">
@@ -641,7 +642,7 @@ export default async function SearchPage({
         )}
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

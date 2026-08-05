@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import { dataAsOf } from "@/lib/data-as-of";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { contractorCountLabel } from "@/lib/registry-stats";
 
@@ -162,8 +163,16 @@ export interface ContentPageLayoutProps {
 
   /**
    * ADDITION beyond §11 — the left half of the meta footer, which §11 has no
-   * prop for. Content pages read "Page last updated · May 24, 2026"; legal
-   * pages read "Effective · May 24, 2026". Both the label and the date vary.
+   * prop for. Content pages read "Page last updated"; legal pages read
+   * "Effective".
+   *
+   * NO DATE IS RENDERED BESIDE IT, and the earlier version of this comment
+   * ("Page last updated · May 24, 2026") described markup that has never
+   * existed — the meta footer renders this label and the read time, nothing
+   * else. Worth knowing before wiring the sync date in here: a page's editorial
+   * revision date is not the registry's refresh date, and pairing this label
+   * with lib/data-as-of.ts would claim the legal terms changed every time DBPR
+   * data was reloaded.
    */
   metaLabel: string;
 
@@ -372,13 +381,24 @@ function RightRail() {
 }
 
 /**
- * PLACEHOLDER DATA. Header and Footer both require the DBPR refresh date and
- * there is no data layer yet. Wire to the real ingestion_runs timestamp in
- * Week 2, same as app/not-found.tsx.
+ * The hard-coded LAST_SYNC_DATE that stood here is gone — see lib/data-as-of.ts.
+ *
+ * It read "May 24, 2026" with a note to wire it to the real timestamp in Week
+ * 2, and it was the third independent copy of that literal alongside
+ * lib/registry-stats.ts and app/not-found.tsx.
+ *
+ * ⚠ THIS COMPONENT IS NOW ASYNC, and it is the only shared component in the
+ * tree that is. Twelve content and legal pages render it; all twelve are server
+ * components, so `<ContentPageLayout>` awaits transparently and none of them
+ * needed a change. It can never become a client component without moving the
+ * date back out to a prop.
+ *
+ * The date is NOT accepted as a prop, deliberately. Twelve callers passing the
+ * same value is twelve chances to pass a different one, which is the shape of
+ * the problem this change removes.
  */
-const LAST_SYNC_DATE = "May 24, 2026";
 
-export default function ContentPageLayout({
+export default async function ContentPageLayout({
   slug,
   kicker,
   h1Plain,
@@ -389,9 +409,11 @@ export default function ContentPageLayout({
   metaLabel,
   rightRail,
 }: ContentPageLayoutProps) {
+  const asOf = await dataAsOf();
+
   return (
     <div className="flex min-h-screen flex-col">
-      <Header currentPath={slug} statsTimestamp={LAST_SYNC_DATE} />
+      <Header currentPath={slug} statsTimestamp={asOf} />
 
       <div className="mx-auto grid w-full max-w-shell grid-cols-[220px_1fr_220px] gap-[60px] px-8 pb-24 pt-12 max-[1200px]:grid-cols-1 max-[1200px]:gap-8">
         {/* LEFT — page navigation. The "Site Pages" tag stays a <p>: as an
@@ -445,7 +467,7 @@ export default function ContentPageLayout({
         </aside>
       </div>
 
-      <Footer lastSyncDate={LAST_SYNC_DATE} />
+      <Footer lastSyncDate={asOf} />
     </div>
   );
 }

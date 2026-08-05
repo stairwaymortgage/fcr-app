@@ -14,7 +14,7 @@ import {
   parsePage,
 } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -62,6 +62,7 @@ export default async function TypePage({
   searchParams: { page?: string };
 }) {
   const db = createClient();
+  const asOf = await dataAsOf();
   const type = await getTypeByCode(db, params.code);
   if (!type) notFound();
 
@@ -77,7 +78,7 @@ export default async function TypePage({
 
   return (
     <>
-      <Header currentPath="/types" statsTimestamp={DATA_AS_OF} />
+      <Header currentPath="/types" statsTimestamp={asOf} />
 
       <section className="border-b border-gray-200 bg-gradient-to-b from-paper to-[#faf6ed] px-8 pb-9 pt-8">
         <div className="mx-auto max-w-shell">
@@ -150,7 +151,7 @@ export default async function TypePage({
         )}
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

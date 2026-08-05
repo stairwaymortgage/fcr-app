@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { isAdmin, requireUser } from "@/lib/auth";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 
 /**
  * Contractor dashboard — /dashboard
@@ -32,6 +32,7 @@ export default async function DashboardPage({
 }) {
   const user = await requireUser("/dashboard");
   const admin = isAdmin(user);
+  const asOf = await dataAsOf();
 
   /**
    * Where /manage/[slug]/settings sends a contractor after they release a
@@ -48,7 +49,7 @@ export default async function DashboardPage({
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[720px] px-6 py-16 max-[700px]:py-10">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
@@ -139,7 +140,7 @@ export default async function DashboardPage({
           </div>
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

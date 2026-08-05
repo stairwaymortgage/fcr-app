@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 
 /**
  * Sign-in link problem — /auth/error
@@ -34,16 +34,17 @@ const REASONS: Record<string, { heading: string; body: string }> = {
   },
 };
 
-export default function AuthErrorPage({
+export default async function AuthErrorPage({
   searchParams,
 }: {
   searchParams: { reason?: string };
 }) {
   const reason = REASONS[searchParams.reason ?? ""] ?? REASONS.link;
+  const asOf = await dataAsOf();
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[520px] px-6 py-20 max-[700px]:py-12">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-status-error">
@@ -61,7 +62,7 @@ export default function AuthErrorPage({
           </Link>
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

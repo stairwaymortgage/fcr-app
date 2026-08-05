@@ -7,7 +7,7 @@ import Header from "@/components/Header";
 import { requireUser } from "@/lib/auth";
 import { attestationText } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 import ClaimForm from "./ClaimForm";
@@ -70,6 +70,7 @@ export default async function ClaimPage({
    * the magic link rather than on the homepage.
    */
   const user = await requireUser(`/contractor/${params.slug}/claim`);
+  const asOf = await dataAsOf();
 
   const db = createClient();
   const { data: contractor } = await db
@@ -108,7 +109,7 @@ export default async function ClaimPage({
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[720px] px-6 py-16 max-[700px]:py-10">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
@@ -212,7 +213,7 @@ export default async function ClaimPage({
           </section>
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

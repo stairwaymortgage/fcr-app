@@ -6,7 +6,8 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { getCountiesWithCounts } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { COUNTY_COUNT, DATA_AS_OF, contractorCountLabel } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
+import { COUNTY_COUNT, contractorCountLabel } from "@/lib/registry-stats";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -35,13 +36,14 @@ export const revalidate = 86400;
 
 export default async function CountiesPage() {
   const db = createClient();
+  const asOf = await dataAsOf();
   const counties = await getCountiesWithCounts(db);
 
   const totalInCounties = counties.reduce((sum, c) => sum + c.count, 0);
 
   return (
     <>
-      <Header currentPath="/counties" statsTimestamp={DATA_AS_OF} />
+      <Header currentPath="/counties" statsTimestamp={asOf} />
 
       <PageHero
         crumbs={[{ href: "/", label: "Home" }, { label: "Counties" }]}
@@ -112,7 +114,7 @@ export default async function CountiesPage() {
         </ul>
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

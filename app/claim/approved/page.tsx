@@ -6,7 +6,7 @@ import Header from "@/components/Header";
 import { requireUser } from "@/lib/auth";
 import { oneRelation } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -34,6 +34,7 @@ export const metadata: Metadata = {
 
 export default async function ClaimApprovedPage() {
   const user = await requireUser("/claim/approved");
+  const asOf = await dataAsOf();
 
   const db = createClient();
   const { data: claims } = await db
@@ -48,7 +49,7 @@ export default async function ClaimApprovedPage() {
 
   if (!approved) {
     return (
-      <Shell heading="No approved claim yet.">
+      <Shell heading="No approved claim yet." asOf={asOf}>
         {pending ? (
           <>
             Your claim is still with a reviewer. Manual review takes 24&ndash;48 hours
@@ -77,7 +78,7 @@ export default async function ClaimApprovedPage() {
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[720px] px-6 py-16 max-[700px]:py-10">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-status-success">
@@ -148,7 +149,7 @@ export default async function ClaimApprovedPage() {
           */}
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }
@@ -165,10 +166,22 @@ function Step({ n, title, children }: { n: string; title: string; children: Reac
   );
 }
 
-function Shell({ heading, children }: { heading: string; children: React.ReactNode }) {
+/**
+ * `asOf` arrives as a prop rather than being awaited here, so the page makes
+ * one call for both branches. See lib/data-as-of.ts.
+ */
+function Shell({
+  heading,
+  asOf,
+  children,
+}: {
+  heading: string;
+  asOf: string;
+  children: React.ReactNode;
+}) {
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[560px] px-6 py-20 max-[700px]:py-12">
           <h1 className="mb-4 font-serif text-[30px] font-semibold leading-[1.15] tracking-[-0.02em] text-navy">
@@ -183,7 +196,7 @@ function Shell({ heading, children }: { heading: string; children: React.ReactNo
           </Link>
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

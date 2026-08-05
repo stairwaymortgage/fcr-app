@@ -17,7 +17,7 @@ import {
   parsePage,
 } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -65,6 +65,7 @@ export default async function CountyPage({
   searchParams: { page?: string; type?: string };
 }) {
   const db = createClient();
+  const asOf = await dataAsOf();
   const county = await getCountyBySlug(db, params.slug);
   if (!county) notFound();
 
@@ -109,7 +110,7 @@ export default async function CountyPage({
 
   return (
     <>
-      <Header currentPath="/counties" statsTimestamp={DATA_AS_OF} />
+      <Header currentPath="/counties" statsTimestamp={asOf} />
 
       <section className="border-b border-gray-200 bg-gradient-to-b from-paper to-[#faf6ed] px-8 pb-9 pt-8">
         <div className="mx-auto max-w-shell">
@@ -230,7 +231,7 @@ export default async function CountyPage({
         </div>
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

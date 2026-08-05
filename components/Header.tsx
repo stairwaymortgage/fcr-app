@@ -23,7 +23,13 @@ import { CONTRACTOR_COUNT } from "@/lib/registry-stats";
 export interface HeaderProps {
   /** Current route, e.g. "/counties" — drives the active-nav underline. */
   currentPath?: string;
-  /** Renders as "Data as of {statsTimestamp}", e.g. "May 24, 2026". */
+  /**
+   * Renders as "Data as of {statsTimestamp}", e.g. "July 29, 2026".
+   *
+   * Every caller passes `await dataAsOf()` — the date OUR copy of the registry
+   * was last refreshed, not the date DBPR published the extract. See
+   * lib/data-as-of.ts before writing copy that turns on the difference.
+   */
   statsTimestamp: string;
   /** Live count from the contractors table, cached daily. */
   contractorCount?: number;

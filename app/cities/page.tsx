@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { getCities, getCountyMeta } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -36,9 +36,10 @@ export const revalidate = 86400;
 
 export default async function CitiesPage() {
   const db = createClient();
-  const [cities, countyMeta] = await Promise.all([
+  const [cities, countyMeta, asOf] = await Promise.all([
     getCities(db),
     getCountyMeta(db),
+    dataAsOf(),
   ]);
 
   // Grouped in JS: PostgREST cannot GROUP BY, and 710 rows is nothing to sort
@@ -64,7 +65,7 @@ export default async function CitiesPage() {
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
 
       <PageHero
         crumbs={[{ href: "/", label: "Home" }, { label: "Cities" }]}
@@ -142,7 +143,7 @@ export default async function CitiesPage() {
         </div>
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

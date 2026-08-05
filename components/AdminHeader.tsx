@@ -66,24 +66,25 @@ type AdminNavLink = {
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * TWO LINKS, THOUGH THE MOCKUP SHOWS FIVE — AND THE OTHER THREE ARE LISTED
- * HERE RATHER THAN RENDERED.
+ * FOUR LINKS, THOUGH THE MOCKUP SHOWS FIVE — AND THE FIFTH IS LISTED HERE
+ * RATHER THAN RENDERED.
  *
- * admin_header.html and the four 08_admin/ pages all show Claims · Leads ·
- * Contractors · DBPR Sync · Settings. Only two of those routes exist:
+ * admin_header.html and the five 08_admin/ pages all show Claims · Leads ·
+ * Contractors · DBPR Sync · Settings. Four of those routes exist:
  *
  *   /admin/claims       built in task 144
  *   /admin/leads        built in task 155 — the reason this component stopped
  *                       being dead code, having had zero imports until now
  *   /admin/contractors  built in task 156a, read-only
+ *   /admin/sync         built in task 157, once scripts/import-dbpr.mjs was
+ *                       instrumented to write the sync_runs rows it reads.
+ *                       The page ships with an honest empty state: the table
+ *                       held zero rows until that instrumentation landed, and
+ *                       the one import this project has performed predates it.
  *
- * NOT BUILT, hrefs recorded so the next person does not have to re-derive them
+ * NOT BUILT, href recorded so the next person does not have to re-derive it
  * from the mockups:
  *
- *   /admin/sync          DBPR sync history. ⚠ sync_runs exists and holds ZERO
- *                        rows (checked 2026-08-05) — the importer has never
- *                        written one, so this page needs the importer fixed
- *                        before it would have anything to show.
  *   /admin/settings      admin_settings.html: sync cadence, integrations,
  *                        team members, danger zone
  *
@@ -91,17 +92,19 @@ type AdminNavLink = {
  * `built: boolean` for exactly this and it was deleted in 148 once the last
  * unbuilt route went away; the lesson recorded there is that a nav link
  * pointing at a 404 is the worst possible first impression of a tool someone
- * has been told to trust, and that hiding beats disabling. Three dead links in
- * a five-link bar would be most of it.
+ * has been told to trust, and that hiding beats disabling.
  *
- * The badge props for the unbuilt links are absent for the same reason — there
- * is nothing to count until there is somewhere to go.
+ * NO BADGE ON DBPR SYNC, deliberately. The obvious candidate is the orphan
+ * count, and a gold pill reading 4,812 would demand an action this product does
+ * not have — orphans are counted and never deleted, so the number is context,
+ * not a queue. Badges here mean "someone must do something".
  * ═══════════════════════════════════════════════════════════════════════════
  */
 const NAV_LINKS: readonly AdminNavLink[] = [
   { href: "/admin/claims", label: "Claims", badge: "claims" },
   { href: "/admin/leads", label: "Leads", badge: "leads" },
   { href: "/admin/contractors", label: "Contractors" },
+  { href: "/admin/sync", label: "DBPR Sync" },
 ];
 
 /**

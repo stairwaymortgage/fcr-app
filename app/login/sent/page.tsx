@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 
 import CodeForm from "./CodeForm";
 
@@ -22,17 +22,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function LoginSentPage({
+export default async function LoginSentPage({
   searchParams,
 }: {
   searchParams: { email?: string; next?: string };
 }) {
   // Trimmed to a sane length so a crafted query string cannot wreck the layout.
   const email = (searchParams.email ?? "").slice(0, 254);
+  const asOf = await dataAsOf();
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[520px] px-6 py-20 max-[700px]:py-12">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
@@ -85,7 +86,7 @@ export default function LoginSentPage({
           </p>
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

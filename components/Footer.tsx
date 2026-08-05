@@ -29,7 +29,7 @@ import { FOCUS_RING_NAVY } from "@/lib/focus";
 
 export interface FooterProps {
   /**
-   * Latest DBPR sync date, e.g. "May 24, 2026".
+   * Latest DBPR sync date, e.g. "July 29, 2026" — from lib/data-as-of.ts.
    * Same value as Header's statsTimestamp.
    */
   lastSyncDate: string;

@@ -6,7 +6,7 @@ import Header from "@/components/Header";
 import { requireUser } from "@/lib/auth";
 import { oneRelation } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -38,6 +38,7 @@ export const metadata: Metadata = {
 
 export default async function ClaimRejectedPage() {
   await requireUser("/claim/rejected");
+  const asOf = await dataAsOf();
 
   const db = createClient();
   const { data: claims } = await db
@@ -58,7 +59,7 @@ export default async function ClaimRejectedPage() {
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[560px] px-6 py-20 max-[700px]:py-12">
           {!rejected ? (
@@ -129,7 +130,7 @@ export default async function ClaimRejectedPage() {
           )}
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

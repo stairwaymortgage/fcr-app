@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { getUser } from "@/lib/auth";
 import { safeNext } from "@/lib/safe-next";
 
@@ -31,6 +31,8 @@ export default async function LoginPage({
 }: {
   searchParams: { next?: string };
 }) {
+  const asOf = await dataAsOf();
+
   /**
    * Already signed in? Don't show a sign-in form — send them where they were
    * going.
@@ -54,7 +56,7 @@ export default async function LoginPage({
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[520px] px-6 py-20 max-[700px]:py-12">
           <p className="mb-3 font-mono text-micro font-semibold uppercase tracking-eyebrow text-gold">
@@ -89,7 +91,7 @@ export default async function LoginPage({
           </p>
         </div>
       </main>
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

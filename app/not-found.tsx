@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import { dataAsOf } from "@/lib/data-as-of";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import {
   contractorCountLabel,
@@ -65,12 +66,17 @@ export const metadata: Metadata = {
 };
 
 /**
- * PLACEHOLDER DATA. Header and Footer both require the DBPR refresh date, and
- * there is no data layer yet. "May 24, 2026" is the value the mockups carry.
- * Wire both to the real ingestion_runs timestamp in Week 2 — a 404 showing a
- * stale sync date is a small lie, but it is still a lie.
+ * The hard-coded LAST_SYNC_DATE that stood here is gone.
+ *
+ * It read "May 24, 2026" — the mockups' value — with a note saying "a 404
+ * showing a stale sync date is a small lie, but it is still a lie" and to wire
+ * it to the real timestamp in Week 2. That is now lib/data-as-of.ts, and this
+ * file is one of three that carried its own copy of the same literal.
+ *
+ * This component became async to read it. A 404 is rendered by Next for every
+ * unmatched route and for every notFound() call, so it now costs one indexed
+ * query on those paths — the same query the page that 404'd would have made.
  */
-const LAST_SYNC_DATE = "May 24, 2026";
 
 const RECOVERY_LINKS = [
   {
@@ -124,13 +130,15 @@ function ArrowIcon() {
   );
 }
 
-export default function NotFound() {
+export default async function NotFound() {
+  const asOf = await dataAsOf();
+
   return (
     /* The mockup puts min-height/flex on <body> so the footer sits at the
        bottom of short pages. Our root layout owns <body>, so the column lives
        here instead — this page is the only one that needs it today. */
     <div className="flex min-h-screen flex-col">
-      <Header statsTimestamp={LAST_SYNC_DATE} />
+      <Header statsTimestamp={asOf} />
 
       <main className="flex flex-1 items-center px-8 py-20">
         <div className="mx-auto w-full max-w-[880px]">
@@ -246,7 +254,7 @@ export default function NotFound() {
         </div>
       </main>
 
-      <Footer lastSyncDate={LAST_SYNC_DATE} />
+      <Footer lastSyncDate={asOf} />
     </div>
   );
 }

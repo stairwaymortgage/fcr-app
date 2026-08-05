@@ -2,10 +2,10 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import { dataAsOf } from "@/lib/data-as-of";
 import { FOCUS_RING_NAVY, FOCUS_RING_PAPER } from "@/lib/focus";
 import {
   COUNTY_COUNT,
-  DATA_AS_OF,
   LICENSE_TYPE_COUNT,
   contractorCountLabel,
 } from "@/lib/registry-stats";
@@ -775,16 +775,17 @@ export default async function Home() {
   // One await, not three. Each of these fans out into its own concurrent count
   // queries, so the whole page costs roughly the slowest single query rather
   // than the sum of twenty.
-  const [counties, types, recentlyAdded, activeLicenses] = await Promise.all([
+  const [counties, types, recentlyAdded, activeLicenses, asOf] = await Promise.all([
     getFeaturedCounties(db),
     getFeaturedTypes(db),
     getRecentlyAdded(db),
     getActiveLicenseCount(db),
+    dataAsOf(),
   ]);
 
   return (
     <>
-      <Header currentPath="/" statsTimestamp={DATA_AS_OF} />
+      <Header currentPath="/" statsTimestamp={asOf} />
 
       {/* contractorCount is left to Header's default, which is
           CONTRACTOR_COUNT — the same constant the hero and band read. */}
@@ -798,7 +799,7 @@ export default async function Home() {
         <ContractorCta />
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

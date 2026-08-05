@@ -15,7 +15,7 @@ import {
   parsePage,
 } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -75,6 +75,7 @@ export default async function CityPage({
   searchParams: { page?: string };
 }) {
   const db = createClient();
+  const asOf = await dataAsOf();
   const city = await getCityBySlug(db, params.slug);
   if (!city) notFound();
 
@@ -97,7 +98,7 @@ export default async function CityPage({
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
 
       <section className="border-b border-gray-200 bg-gradient-to-b from-paper to-[#faf6ed] px-8 pb-9 pt-8">
         <div className="mx-auto max-w-shell">
@@ -158,7 +159,7 @@ export default async function CityPage({
         )}
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * DBPR initial import — parser + loader.
+ * DBPR import — parser, loader, and the writer of the sync_runs audit row.
  *
  * Replaces the transform in _handoff/09_dbpr_ingestion/sync_dbpr.ts, whose
  * documented column layout matches no file we have. Written against the
@@ -9,18 +9,52 @@
  *
  *   node scripts/import-dbpr.mjs --count-only     collision audit, no DB
  *   node scripts/import-dbpr.mjs --preview 20     transform preview, no DB
- *   node scripts/import-dbpr.mjs --limit 20       insert first 20 rows
+ *   node scripts/import-dbpr.mjs --census-only    what WOULD change; reads, never writes
+ *   node scripts/import-dbpr.mjs --limit 20       insert first 20 rows, NO audit row
+ *   node scripts/import-dbpr.mjs --no-diff        full import, skip the change census
  *   node scripts/import-dbpr.mjs                  full import
  *
  * Never prints credential values.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THIS SCRIPT IS THE ONLY WRITER OF sync_runs, AND /admin/sync IS ITS ONLY
+ * READER.
+ *
+ * Before task 157 the table had zero rows and had never had one: the initial
+ * import ran from this file, which upserted 266,305 contractors and recorded
+ * nothing about having done so. That is why lib/registry-stats.ts carried a
+ * hard-coded "data as of" date for five weeks — there was no run to ask.
+ *
+ * A row is opened 'running' before the CSV is parsed and closed 'success' or
+ * 'failed' on the way out, including when the parse itself throws. A run that
+ * dies without closing its row leaves it 'running', and /admin/sync says so
+ * rather than treating the absence of a completion as a success.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ --limit WRITES NO AUDIT ROW, DELIBERATELY. A 20-row load is not a refresh,
+ * and recording it as one would (a) report 266,285 orphans, since every row the
+ * subset did not touch looks abandoned, and (b) move the public "Data as of"
+ * date on every page — see lib/data-as-of.ts. It still bumps last_dbpr_sync_at
+ * on the rows it does touch, so --preview is the safer shape check.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parse } from "csv-parse/sync";
 import { createClient } from "@supabase/supabase-js";
 
 const CSV_PATH = "_handoff/07_source_data/CONSTRUCTIONLICENSE_1.csv";
 const BATCH_SIZE = 1000;
+
+/**
+ * Rows per page when reading existing keys back for the change census, and how
+ * many of those pages are in flight at once.
+ *
+ * 1000 is PostgREST's own ceiling, so a larger number silently truncates. Six
+ * concurrent pages reads 266k fingerprints in about a minute; more than that
+ * starts competing with the upsert for the same connection pool.
+ */
+const READ_PAGE = 1000;
+const READ_CONCURRENCY = 6;
 
 // ==========================================================
 // OFFICIAL DBPR FIELD POSITIONS (0-based)
@@ -123,28 +157,189 @@ function transform(r, collidingBases) {
 }
 
 // ==========================================================
+// THE CHANGE CENSUS
+// ==========================================================
+//
+// sync_runs wants records_inserted / records_updated / records_unchanged, and
+// an upsert cannot tell you which it did — PostgREST returns no per-row verdict
+// and `ON CONFLICT DO UPDATE` reports every row as written whether or not any
+// value moved. So the classification has to happen BEFORE the upsert, against
+// what is already in the table.
+//
+// Reading 266,305 whole rows back to compare them field-by-field would hold
+// roughly half a gigabyte of objects in memory. Instead each existing row is
+// reduced, as it arrives, to a short fingerprint of the columns this script
+// writes; the row itself is discarded. That is ~30MB for the whole table.
+//
+//   key absent from the map      -> inserted
+//   key present, same print      -> unchanged
+//   key present, different print -> updated
+//
+// ⚠ THE FINGERPRINT COLUMN LIST MUST MATCH WHAT THE UPSERT SENDS. Add a column
+// to transform() without adding it here and every row carrying that column will
+// be reported 'unchanged' while its value is quietly rewritten. last_dbpr_sync_at
+// is excluded on purpose — it moves on every run by design, and including it
+// would make every row 'updated' forever.
+const FINGERPRINT_COLUMNS = [
+  "license_number", "license_number_raw", "license_type", "business_name",
+  "qualifying_agent_name", "is_business", "address_line", "city", "county_code",
+  "state", "zip", "license_status", "license_status_secondary",
+  "original_license_date", "expiration_date", "disciplinary_codes",
+];
+
+/**
+ * Same value in, same string out, for both a transformed record and a row read
+ * back from PostgREST. JSON.stringify over a fixed column order rather than
+ * Object.values(), because key order is not a contract and `undefined` and
+ * `null` must not fingerprint differently — the DB only ever returns null.
+ */
+const fingerprint = (row) =>
+  JSON.stringify(FINGERPRINT_COLUMNS.map((c) => row[c] ?? null));
+
+/** Run `fn` over `items` with at most `limit` in flight. */
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i], i);
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * Every dbpr_sync_key currently in the table, mapped to its fingerprint.
+ *
+ * Paged by range over an ORDERED read. Ordering is not decoration: PostgREST
+ * gives no stability guarantee for an unordered range, so paging without it can
+ * return the same row twice and skip another.
+ */
+async function loadFingerprints(db, onProgress) {
+  const { count, error: countError } = await db
+    .from("contractors")
+    .select("dbpr_sync_key", { count: "exact", head: true });
+  if (countError) throw new Error(`counting contractors: ${countError.message}`);
+
+  const pages = [];
+  for (let from = 0; from < (count ?? 0); from += READ_PAGE) pages.push(from);
+
+  const map = new Map();
+  let done = 0;
+  await mapLimit(pages, READ_CONCURRENCY, async (from) => {
+    const { data, error } = await db
+      .from("contractors")
+      .select(["dbpr_sync_key", ...FINGERPRINT_COLUMNS].join(", "))
+      .order("dbpr_sync_key", { ascending: true })
+      .range(from, from + READ_PAGE - 1);
+    if (error) throw new Error(`reading existing rows at ${from}: ${error.message}`);
+    for (const row of data) map.set(row.dbpr_sync_key, fingerprint(row));
+    done += data.length;
+    onProgress?.(done, count ?? 0);
+  });
+
+  return map;
+}
+
+// ==========================================================
+// sync_runs — the audit row
+// ==========================================================
+
+/**
+ * SOURCE IS THE LOCAL FILE, AND THE ROW SAYS SO.
+ *
+ * sync_runs.source_url defaults to the DBPR download URL, and writing that
+ * default would be a claim this script cannot support: it reads a CSV that was
+ * handed to us and committed under _handoff/07_source_data, and where that file
+ * came from is the open question holding task 158's trigger (asking Adnan). A
+ * file: URI is the true provenance until that is answered, and it keeps the
+ * question visible on /admin/sync instead of burying it.
+ */
+const SOURCE_URI = `file:${CSV_PATH}`;
+
+async function startRun(db, { sourceBytes, sourceHash }) {
+  const { data, error } = await db
+    .from("sync_runs")
+    .insert({
+      status: "running",
+      triggered_by: "manual",
+      // triggered_by_user_id stays null: a CLI run has no session, and inventing
+      // one would put a name against work nobody signed in to do. The cron
+      // runner will leave it null too; a human-triggered run from the admin UI
+      // is what that column is for.
+      source_url: SOURCE_URI,
+      source_file_size: sourceBytes,
+      source_file_hash: sourceHash,
+    })
+    .select("id, started_at")
+    .single();
+  if (error) throw new Error(`could not open sync_runs row: ${error.message}`);
+  return data;
+}
+
+async function completeRun(db, id, counts) {
+  const { error } = await db
+    .from("sync_runs")
+    .update({ status: "success", completed_at: new Date().toISOString(), ...counts })
+    .eq("id", id);
+  if (error) console.error(`\n⚠ run finished but sync_runs update failed: ${error.message}`);
+}
+
+/**
+ * Close the row as failed. Swallows its own error and reports it — a failure to
+ * record a failure must not replace the original error in the operator's face.
+ */
+async function failRun(db, id, err) {
+  const { error } = await db
+    .from("sync_runs")
+    .update({
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error_message: String(err?.message ?? err).slice(0, 2000),
+      error_stack: String(err?.stack ?? "").slice(0, 20000),
+    })
+    .eq("id", id);
+  if (error) console.error(`⚠ could not record the failure: ${error.message}`);
+}
+
+// ==========================================================
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
 const value = (n) => { const i = args.indexOf(n); return i >= 0 ? Number(args[i + 1]) : null; };
 
+/**
+ * Read and fingerprint the source file BEFORE anything else, so that a run
+ * which dies during parsing still has real provenance on its audit row. 46MB
+ * through SHA-256 is a third of a second.
+ */
 console.log(`reading ${CSV_PATH}`);
-const rows = parse(readFileSync(CSV_PATH), {
-  columns: false, skip_empty_lines: true, relax_column_count: true, bom: true,
-});
-console.log(`parsed ${rows.length.toLocaleString("en-US")} rows\n`);
+const sourceBuffer = readFileSync(CSV_PATH);
+const sourceBytes = statSync(CSV_PATH).size;
+const sourceHash = createHash("sha256").update(sourceBuffer).digest("hex");
+console.log(`  ${(sourceBytes / 1e6).toFixed(1)} MB · sha256 ${sourceHash.slice(0, 16)}…`);
 
-// Pass 1 — find base keys that collide, so pass 2 can disambiguate them.
-const seen = new Map();
-for (const r of rows) { const b = baseKey(r); seen.set(b, (seen.get(b) ?? 0) + 1); }
-const collidingBases = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
+/** Parse + transform + dedupe. Everything up to "ready to upsert". */
+function prepare() {
+  const rows = parse(sourceBuffer, {
+    columns: false, skip_empty_lines: true, relax_column_count: true, bom: true,
+  });
+  console.log(`parsed ${rows.length.toLocaleString("en-US")} rows\n`);
 
-const parsed = rows.map((r) => transform(r, collidingBases));
+  // Pass 1 — find base keys that collide, so pass 2 can disambiguate them.
+  const seen = new Map();
+  for (const r of rows) { const b = baseKey(r); seen.set(b, (seen.get(b) ?? 0) + 1); }
+  const collidingBases = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
 
-// Audit BEFORE dedupe, so the collision count is still reported.
-const keys = new Map();
-for (const rec of parsed) keys.set(rec.dbpr_sync_key, (keys.get(rec.dbpr_sync_key) ?? 0) + 1);
-const collisions = [...keys.values()].filter((n) => n > 1).reduce((a, n) => a + n - 1, 0);
+  const parsed = rows.map((r) => transform(r, collidingBases));
+
+  // Audit BEFORE dedupe, so the collision count is still reported.
+  const keys = new Map();
+  for (const rec of parsed) keys.set(rec.dbpr_sync_key, (keys.get(rec.dbpr_sync_key) ?? 0) + 1);
+  const collisions = [...keys.values()].filter((n) => n > 1).reduce((a, n) => a + n - 1, 0);
 
 /**
  * DEDUPE BY KEY BEFORE LOADING — not optional.
@@ -160,34 +355,39 @@ const collisions = [...keys.values()].filter((n) => n > 1).reduce((a, n) => a + 
  * First occurrence wins; the duplicates are byte-identical, so which one
  * survives is immaterial.
  */
-const byKey = new Map();
-for (const rec of parsed) if (!byKey.has(rec.dbpr_sync_key)) byKey.set(rec.dbpr_sync_key, rec);
-const records = [...byKey.values()];
-const dropped = parsed.length - records.length;
+  const byKey = new Map();
+  for (const rec of parsed) if (!byKey.has(rec.dbpr_sync_key)) byKey.set(rec.dbpr_sync_key, rec);
+  const records = [...byKey.values()];
+  const dropped = parsed.length - records.length;
 
-const stats = {
-  rowsParsed: parsed.length,
-  distinctKeys: keys.size,
-  keyCollisions: collisions,
-  rowsDroppedAsDuplicate: dropped,
-  rowsToLoad: records.length,
-  nullLicenseNumber: records.filter((r) => !r.license_number).length,
-  nullCity: records.filter((r) => !r.city).length,
-  nullCounty: records.filter((r) => !r.county_code).length,
-  nullStatus: records.filter((r) => !r.license_status).length,
-  nullOriginalDate: records.filter((r) => !r.original_license_date).length,
-  nullExpiration: records.filter((r) => !r.expiration_date).length,
-  isBusinessTrue: records.filter((r) => r.is_business).length,
-};
-console.log("TRANSFORM AUDIT");
-for (const [k, v] of Object.entries(stats)) {
-  console.log(`  ${k.padEnd(20)} ${typeof v === "number" ? v.toLocaleString("en-US") : v}`);
+  const stats = {
+    rowsParsed: parsed.length,
+    distinctKeys: keys.size,
+    keyCollisions: collisions,
+    rowsDroppedAsDuplicate: dropped,
+    rowsToLoad: records.length,
+    nullLicenseNumber: records.filter((r) => !r.license_number).length,
+    nullCity: records.filter((r) => !r.city).length,
+    nullCounty: records.filter((r) => !r.county_code).length,
+    nullStatus: records.filter((r) => !r.license_status).length,
+    nullOriginalDate: records.filter((r) => !r.original_license_date).length,
+    nullExpiration: records.filter((r) => !r.expiration_date).length,
+    isBusinessTrue: records.filter((r) => r.is_business).length,
+  };
+  console.log("TRANSFORM AUDIT");
+  for (const [k, v] of Object.entries(stats)) {
+    console.log(`  ${k.padEnd(20)} ${typeof v === "number" ? v.toLocaleString("en-US") : v}`);
+  }
+  console.log();
+
+  return records;
 }
-console.log();
 
-if (flag("--count-only")) process.exit(0);
+// ---- dry paths: parse, report, touch nothing ----
+if (flag("--count-only")) { prepare(); process.exit(0); }
 
 if (flag("--preview")) {
+  const records = prepare();
   const n = value("--preview") ?? 20;
   console.log(JSON.stringify(records.slice(0, n), null, 2));
   process.exit(0);
@@ -204,31 +404,187 @@ const db = createClient(
   { auth: { persistSession: false } },
 );
 
-const limit = value("--limit");
-let toLoad = records;
-if (limit) {
-  toLoad = records.slice(0, limit);
-  // The dry run must include the Aceca verification row.
-  const ACECA = "CGC1520921";
-  if (!toLoad.some((r) => r.license_number === ACECA)) {
-    const extra = records.find((r) => r.license_number === ACECA);
-    if (extra) { toLoad = [...toLoad, extra]; console.log(`added ${ACECA} as verification row ${toLoad.length}\n`); }
+/**
+ * --census-only: answer "what would this refresh change?" and write nothing.
+ *
+ * Reads the existing fingerprints and classifies the extract against them —
+ * the whole of the counting work, with the upsert and the audit row left out.
+ * That makes the change census independently checkable, which matters because
+ * its numbers are the ones /admin/sync reports and nobody can eyeball 266,305
+ * rows to see whether they are right.
+ *
+ * It is also the honest way to inspect a refresh that is being held: the
+ * question "how much has DBPR changed since July" is answerable without
+ * committing to the load.
+ */
+if (flag("--census-only")) {
+  const records = prepare();
+  console.log("reading existing keys…");
+  const existing = await loadFingerprints(db, (done, total) => {
+    if (done % 50_000 < READ_PAGE) {
+      console.log(`  ${done.toLocaleString("en-US")}/${total.toLocaleString("en-US")}`);
+    }
+  });
+
+  let inserted = 0, updated = 0, unchanged = 0;
+  for (const rec of records) {
+    const before = existing.get(rec.dbpr_sync_key);
+    if (before === undefined) inserted++;
+    else if (before === fingerprint(rec)) unchanged++;
+    else updated++;
   }
+  const loadedKeys = new Set(records.map((r) => r.dbpr_sync_key));
+  let orphaned = 0;
+  for (const key of existing.keys()) if (!loadedKeys.has(key)) orphaned++;
+
+  const n = (x) => x.toLocaleString("en-US");
+  console.log(
+    `\nCHANGE CENSUS (nothing written)\n` +
+    `  in the table now  ${n(existing.size)}\n` +
+    `  in the extract    ${n(records.length)}\n` +
+    `  ----\n` +
+    `  inserted          ${n(inserted)}\n` +
+    `  updated           ${n(updated)}\n` +
+    `  unchanged         ${n(unchanged)}\n` +
+    `  orphaned          ${n(orphaned)}  (counted, never deleted)\n`,
+  );
+  // The identity that must hold, checked rather than asserted in a comment.
+  const ok = inserted + updated + unchanged === records.length;
+  console.log(
+    ok
+      ? "  inserted + updated + unchanged === extract rows ✓"
+      : `  ⚠ MISMATCH: ${n(inserted + updated + unchanged)} classified vs ${n(records.length)} rows`,
+  );
+  process.exit(ok ? 0 : 1);
 }
 
-console.log(`upserting ${toLoad.length.toLocaleString("en-US")} rows in batches of ${BATCH_SIZE}`);
-const started = Date.now();
-let done = 0;
-for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
-  const batch = toLoad.slice(i, i + BATCH_SIZE);
-  const { error } = await db
-    .from("contractors")
-    .upsert(batch.map((r) => ({ ...r, last_dbpr_sync_at: new Date().toISOString() })),
-            { onConflict: "dbpr_sync_key", ignoreDuplicates: false });
-  if (error) { console.error(`\nBATCH ${i} FAILED: ${error.message}`); process.exit(1); }
-  done += batch.length;
-  if ((i / BATCH_SIZE) % 10 === 0 || done === toLoad.length) {
-    console.log(`  ${done.toLocaleString("en-US")}/${toLoad.length.toLocaleString("en-US")}`);
-  }
+const limit = value("--limit");
+const isPartial = Boolean(limit);
+
+/**
+ * Partial loads get no audit row — see the file docblock. The warning is loud
+ * because the failure mode is silent: the load succeeds, the page shows nothing
+ * new, and the reason is a flag typed forty minutes earlier.
+ */
+const run = isPartial ? null : await startRun(db, { sourceBytes, sourceHash });
+if (run) {
+  console.log(`sync_runs ${run.id} opened · started_at ${run.started_at}\n`);
+} else {
+  console.log("⚠ --limit: partial load, NO sync_runs row will be written\n");
 }
-console.log(`\ndone in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+
+const started = Date.now();
+
+try {
+  const records = prepare();
+
+  let toLoad = records;
+  if (limit) {
+    toLoad = records.slice(0, limit);
+    // The dry run must include the Aceca verification row.
+    const ACECA = "CGC1520921";
+    if (!toLoad.some((r) => r.license_number === ACECA)) {
+      const extra = records.find((r) => r.license_number === ACECA);
+      if (extra) { toLoad = [...toLoad, extra]; console.log(`added ${ACECA} as verification row ${toLoad.length}\n`); }
+    }
+  }
+
+  /**
+   * The census, read before a single row is written. Skippable with --no-diff,
+   * in which case the three count columns stay NULL rather than being guessed —
+   * /admin/sync renders "not measured" for a null and "0" for a zero, and those
+   * are different claims.
+   */
+  let census = null;
+  let orphaned = null;
+  if (!isPartial && !flag("--no-diff")) {
+    console.log("reading existing keys for the change census…");
+    const existing = await loadFingerprints(db, (done, total) => {
+      if (done % 50_000 < READ_PAGE) {
+        console.log(`  ${done.toLocaleString("en-US")}/${total.toLocaleString("en-US")}`);
+      }
+    });
+
+    census = { inserted: 0, updated: 0, unchanged: 0 };
+    for (const rec of toLoad) {
+      const before = existing.get(rec.dbpr_sync_key);
+      if (before === undefined) census.inserted++;
+      else if (before === fingerprint(rec)) census.unchanged++;
+      else census.updated++;
+    }
+
+    /**
+     * Orphans: in the table, absent from this extract. COUNTED, NEVER DELETED —
+     * contractors.claimed_by_user_id cascades into claims, so removing a row
+     * that DBPR merely stopped publishing would destroy the claim and its
+     * evidence. /admin/sync reports the same figure from the other direction,
+     * off last_dbpr_sync_at, which is the cross-check.
+     */
+    const loadedKeys = new Set(toLoad.map((r) => r.dbpr_sync_key));
+    orphaned = 0;
+    for (const key of existing.keys()) if (!loadedKeys.has(key)) orphaned++;
+
+    console.log(
+      `\nCHANGE CENSUS\n` +
+      `  inserted   ${census.inserted.toLocaleString("en-US")}\n` +
+      `  updated    ${census.updated.toLocaleString("en-US")}\n` +
+      `  unchanged  ${census.unchanged.toLocaleString("en-US")}\n` +
+      `  orphaned   ${orphaned.toLocaleString("en-US")}  (counted, never deleted)\n`,
+    );
+  } else if (!isPartial) {
+    console.log("--no-diff: skipping the change census, counts will be recorded as NULL\n");
+  }
+
+  console.log(`upserting ${toLoad.length.toLocaleString("en-US")} rows in batches of ${BATCH_SIZE}`);
+  let done = 0;
+  for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
+    const batch = toLoad.slice(i, i + BATCH_SIZE);
+    /**
+     * ⚠ EVERY ROW IN THE EXTRACT GETS last_dbpr_sync_at BUMPED, INCLUDING THE
+     * ONES THE CENSUS CALLED 'unchanged'. Do not "optimise" that away. Orphan
+     * detection is defined as a stamp older than the newest successful run, so
+     * skipping the write on unchanged rows would report the entire quiet
+     * majority of the registry as abandoned.
+     */
+    const { error } = await db
+      .from("contractors")
+      .upsert(batch.map((r) => ({ ...r, last_dbpr_sync_at: new Date().toISOString() })),
+              { onConflict: "dbpr_sync_key", ignoreDuplicates: false });
+    if (error) throw new Error(`batch at offset ${i} failed: ${error.message}`);
+    done += batch.length;
+    if ((i / BATCH_SIZE) % 10 === 0 || done === toLoad.length) {
+      console.log(`  ${done.toLocaleString("en-US")}/${toLoad.length.toLocaleString("en-US")}`);
+    }
+  }
+
+  if (run) {
+    await completeRun(db, run.id, {
+      records_total: toLoad.length,
+      records_inserted: census?.inserted ?? null,
+      records_updated: census?.updated ?? null,
+      records_unchanged: census?.unchanged ?? null,
+      records_orphaned: orphaned,
+    });
+    console.log(`\nsync_runs ${run.id} closed 'success'`);
+  }
+  console.log(`done in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+
+  /**
+   * The reference counts are NOT refreshed here. /counties, /cities and /types
+   * read stored integers that this script has just invalidated — run
+   * db/migrations/20260805_reference_counts_repair.sql next, then
+   * `node scripts/verify-counts.mjs` to confirm. Automating it from here needs
+   * a decision about running SQL from Node that has not been taken.
+   */
+  console.log(
+    "\nNEXT: run db/migrations/20260805_reference_counts_repair.sql, then\n" +
+    "      node scripts/verify-counts.mjs",
+  );
+} catch (err) {
+  console.error(`\nIMPORT FAILED: ${err.message}`);
+  if (run) {
+    await failRun(db, run.id, err);
+    console.error(`sync_runs ${run.id} closed 'failed'`);
+  }
+  process.exitCode = 1;
+}

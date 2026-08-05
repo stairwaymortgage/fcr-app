@@ -25,7 +25,7 @@ import {
 import { endSentence } from "@/lib/format-name";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { logoPublicUrl } from "@/lib/logo";
-import { DATA_AS_OF } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
 import { submitInquiry } from "./actions";
@@ -443,12 +443,15 @@ function About({
   typeName,
   countyName,
   siblings,
+  asOf,
 }: {
   contractor: ContractorProfile;
   name: string;
   typeName: string | null;
   countyName: string | null;
   siblings: SiblingLicense[];
+  /** Threaded from the page rather than fetched here — see lib/data-as-of.ts. */
+  asOf: string;
 }) {
   const claimed = isClaimed(contractor);
   const sinceYear = yearOf(contractor.original_license_date);
@@ -513,10 +516,16 @@ function About({
                 the full detail of each action.
               </>
             ) : (
+              /* "in the extract we last loaded on X", NOT "in the extract
+                 dated X". The date is now derived from when we imported —
+                 see lib/data-as-of.ts — and the DBPR extract's own publication
+                 date is earlier and different. The old wording attributed our
+                 import date to their document. */
               <>
                 No disciplinary codes appear against this license in the extract
-                dated {DATA_AS_OF}. That is not a guarantee of a clean record —
-                verify current status directly with DBPR before you hire.
+                we last loaded on {asOf}. That is not a guarantee of a clean
+                record — verify current status directly with DBPR before you
+                hire.
               </>
             )}
           </p>
@@ -621,11 +630,14 @@ function Faq({
   name,
   countyName,
   siblings,
+  asOf,
 }: {
   contractor: ContractorProfile;
   name: string;
   countyName: string | null;
   siblings: SiblingLicense[];
+  /** Threaded from the page rather than fetched here — see lib/data-as-of.ts. */
+  asOf: string;
 }) {
   const current = isCurrentLicense(contractor);
   const currentCount = siblings.filter(isCurrentLicense).length;
@@ -678,9 +690,10 @@ function Faq({
             the detail behind each code.
           </>
         ) : (
+          /* Reworded with the About copy above, for the same reason. */
           <>
-            No disciplinary codes appear in the DBPR extract dated {DATA_AS_OF}.
-            Records may have changed since that refresh.
+            No disciplinary codes appear in the DBPR extract we last loaded on{" "}
+            {asOf}. Records may have changed since that refresh.
           </>
         ),
     },
@@ -883,6 +896,7 @@ export default async function ContractorProfilePage({
   searchParams: { inquiry?: string; e?: string };
 }) {
   const db = createClient();
+  const asOf = await dataAsOf();
   const contractor = await getContractorBySlug(db, params.slug);
 
   // An unknown slug is a 404, not an empty page — it renders app/not-found.tsx
@@ -912,7 +926,7 @@ export default async function ContractorProfilePage({
 
   return (
     <>
-      <Header statsTimestamp={DATA_AS_OF} />
+      <Header statsTimestamp={asOf} />
       <Breadcrumb
         countyName={countyName}
         countySlug={countySlug}
@@ -937,6 +951,7 @@ export default async function ContractorProfilePage({
             typeName={typeName}
             countyName={countyName}
             siblings={siblings}
+            asOf={asOf}
           />
           <Licenses
             siblings={siblings}
@@ -948,6 +963,7 @@ export default async function ContractorProfilePage({
             name={name}
             countyName={countyName}
             siblings={siblings}
+            asOf={asOf}
           />
         </div>
 
@@ -1057,7 +1073,7 @@ export default async function ContractorProfilePage({
             License information shown is republished from public records of the
             Florida Department of Business and Professional Regulation (DBPR),{" "}
             <strong className="font-semibold text-navy">
-              last refreshed {DATA_AS_OF}.
+              last refreshed {asOf}.
             </strong>{" "}
             License status may have changed since this refresh.
           </div>
@@ -1098,7 +1114,7 @@ export default async function ContractorProfilePage({
         </aside>
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }

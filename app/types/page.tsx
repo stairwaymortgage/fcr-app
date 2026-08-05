@@ -6,7 +6,8 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { getTypesWithCounts } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
-import { DATA_AS_OF, LICENSE_TYPE_COUNT } from "@/lib/registry-stats";
+import { dataAsOf } from "@/lib/data-as-of";
+import { LICENSE_TYPE_COUNT } from "@/lib/registry-stats";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -33,6 +34,7 @@ export const revalidate = 86400;
 
 export default async function TypesPage() {
   const db = createClient();
+  const asOf = await dataAsOf();
   const types = await getTypesWithCounts(db);
 
   const held = types.filter((t) => t.count > 0);
@@ -41,7 +43,7 @@ export default async function TypesPage() {
 
   return (
     <>
-      <Header currentPath="/types" statsTimestamp={DATA_AS_OF} />
+      <Header currentPath="/types" statsTimestamp={asOf} />
 
       <PageHero
         crumbs={[{ href: "/", label: "Home" }, { label: "License Types" }]}
@@ -136,7 +138,7 @@ export default async function TypesPage() {
         )}
       </main>
 
-      <Footer lastSyncDate={DATA_AS_OF} />
+      <Footer lastSyncDate={asOf} />
     </>
   );
 }
