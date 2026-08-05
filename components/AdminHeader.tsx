@@ -72,15 +72,18 @@ type AdminNavLink = {
  * admin_header.html and the four 08_admin/ pages all show Claims · Leads ·
  * Contractors · DBPR Sync · Settings. Only two of those routes exist:
  *
- *   /admin/claims     built in task 144
- *   /admin/leads      built in task 155 — the reason this component stopped
- *                     being dead code, having had zero imports until now
+ *   /admin/claims       built in task 144
+ *   /admin/leads        built in task 155 — the reason this component stopped
+ *                       being dead code, having had zero imports until now
+ *   /admin/contractors  built in task 156a, read-only
  *
  * NOT BUILT, hrefs recorded so the next person does not have to re-derive them
  * from the mockups:
  *
- *   /admin/contractors   a browse/search view over 266,305 rows
- *   /admin/sync          DBPR sync history — sync_runs has the table already
+ *   /admin/sync          DBPR sync history. ⚠ sync_runs exists and holds ZERO
+ *                        rows (checked 2026-08-05) — the importer has never
+ *                        written one, so this page needs the importer fixed
+ *                        before it would have anything to show.
  *   /admin/settings      admin_settings.html: sync cadence, integrations,
  *                        team members, danger zone
  *
@@ -98,6 +101,7 @@ type AdminNavLink = {
 const NAV_LINKS: readonly AdminNavLink[] = [
   { href: "/admin/claims", label: "Claims", badge: "claims" },
   { href: "/admin/leads", label: "Leads", badge: "leads" },
+  { href: "/admin/contractors", label: "Contractors" },
 ];
 
 /**

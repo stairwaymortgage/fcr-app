@@ -133,21 +133,14 @@ export interface LeadRow {
 }
 
 /**
- * ?q= is interpolated into a PostgREST `.or()` filter, which is a string
- * grammar — commas separate filters and parentheses group them. So this is an
- * allowlist, not an escape function; the reasoning is written out in full in
- * lib/inquiries.ts:sanitizeSearch.
- *
- * `+` survives here and does not there, because these rows carry E.164 phone
- * numbers and a search for "+1305" is a thing a person would type.
+ * sanitizeSearch moved to lib/filter-text.ts, and relativeTime/absoluteTime to
+ * lib/time.ts, when /admin/contractors became the third caller of each. The
+ * note this file carried — "TWO CALLERS IS NOT THREE ... if a third appears,
+ * extract then" — is what triggered it. Re-exported so this stays the one
+ * import a leads page needs.
  */
-export function sanitizeSearch(value: string | undefined): string {
-  return (value ?? "")
-    .replace(/[^a-zA-Z0-9 @.'+-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 60);
-}
+export { sanitizeSearch } from "@/lib/filter-text";
+export { relativeTime, absoluteTime } from "@/lib/time";
 
 /** "$1,240". Whole dollars — estimated_value is an integer column. */
 export function formatValue(value: number | null | undefined): string {
@@ -164,43 +157,6 @@ export function formatValueCompact(total: number): string {
   if (total >= 1_000_000) return `$${(total / 1_000_000).toFixed(1)}M`;
   if (total >= 1_000) return `$${Math.round(total / 1_000)}K`;
   return `$${total.toLocaleString("en-US")}`;
-}
-
-/**
- * "9 min ago" / "2 hr ago" / "Yesterday" / "3 days ago" / "May 18".
- *
- * Duplicated from lib/inquiries.ts rather than shared. TWO CALLERS IS NOT THREE
- * — and the two are not obviously the same function: this one labels an admin
- * queue where "oldest unanswered" is the point, and that one labels a
- * contractor's mail. If a third appears, extract then, and the extraction will
- * have three real call sites to be shaped by.
- */
-export function relativeTime(iso: string, now: Date = new Date()): string {
-  const then = new Date(iso);
-  const minutes = Math.floor((now.getTime() - then.getTime()) / 60000);
-
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} min ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfThen = new Date(then.getFullYear(), then.getMonth(), then.getDate());
-  const days = Math.round((startOfToday.getTime() - startOfThen.getTime()) / 86_400_000);
-
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-
-  return then.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(then.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
-  });
-}
-
-export function absoluteTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
 }
 
 /**

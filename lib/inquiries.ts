@@ -79,78 +79,16 @@ export function parseTab(value: string | undefined): InquiryTab {
 }
 
 /**
- * ?q= is interpolated into a PostgREST `.or()` filter, which is a STRING GRAMMAR
- * — commas separate the filters, parentheses group them, and dots separate
- * column from operator from value. A raw query string is therefore not a search
- * term, it is syntax: `a,b` silently becomes two filters, and an unbalanced
- * paren makes the whole request 400.
+ * sanitizeSearch, relativeTime and absoluteTime USED TO LIVE HERE.
  *
- * So this is an allowlist, not an escape function. Letters, digits, spaces and
- * the handful of punctuation marks that appear inside real names and email
- * addresses survive; everything else is dropped rather than encoded, because
- * there is no encoding that PostgREST would decode back.
- *
- * `%` and `_` are dropped for the same reason a step further in: they are LIKE
- * wildcards, so a search for "50%" would otherwise match everything.
- *
- * 60 characters because a search box is not an input channel for the database —
- * nobody types a longer name than that, and the cap bounds the pattern the
- * planner has to run against every row.
+ * All three moved when /admin/contractors became their third call site —
+ * lib/filter-text.ts and lib/time.ts, each with the reasoning that was in these
+ * docblocks. Re-exported rather than re-imported at every call site, matching
+ * how lib/contractor-profile.ts republishes the name formatters: this module
+ * stays the one import an inbox page needs.
  */
-export function sanitizeSearch(value: string | undefined): string {
-  return (value ?? "")
-    .replace(/[^a-zA-Z0-9 @.'-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 60);
-}
-
-/**
- * "9 min ago" / "2 hr ago" / "Yesterday" / "3 days ago" / "May 18" — the five
- * shapes the mockup's list rows use (contractor_inquiries.html:676-746).
- *
- * COMPUTED AT RENDER, WHICH IS ONLY SAFE BECAUSE THIS PAGE IS NEVER CACHED. It
- * reads the session on every request, so there is no cached HTML to go stale.
- * If any part of this route is ever made static, these strings freeze at build
- * time — move the arithmetic to the client then, or drop to absolute dates.
- */
-export function relativeTime(iso: string, now: Date = new Date()): string {
-  const then = new Date(iso);
-  const minutes = Math.floor((now.getTime() - then.getTime()) / 60000);
-
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} min ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-
-  // Calendar days apart, not 24-hour blocks: something sent at 11pm is
-  // "Yesterday" at 1am, which is what a person means by the word.
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfThen = new Date(then.getFullYear(), then.getMonth(), then.getDate());
-  const days = Math.round(
-    (startOfToday.getTime() - startOfThen.getTime()) / 86_400_000,
-  );
-
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-
-  return then.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    // The year only when it is not this one — "May 18" for recent mail,
-    // "May 18, 2025" once it is old enough for the ambiguity to matter.
-    ...(then.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
-  });
-}
-
-/** Full timestamp for the detail header and for the rows' title attribute. */
-export function absoluteTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
-    dateStyle: "long",
-    timeStyle: "short",
-  });
-}
+export { sanitizeSearch } from "@/lib/filter-text";
+export { relativeTime, absoluteTime } from "@/lib/time";
 
 /**
  * The two-line snippet under a name in the list.
