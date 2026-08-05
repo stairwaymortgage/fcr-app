@@ -1,0 +1,184 @@
+import "server-only";
+
+import { absoluteUrl } from "@/lib/site-url";
+import { createClient } from "@/lib/supabase/server";
+
+/**
+ * Sitemap generation — 266,305 profiles plus the browse and content pages.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A SITEMAP INDEX AND SEVEN CHILD FILES, BECAUSE ONE FILE CANNOT HOLD THIS.
+ * The sitemaps.org limit — enforced by Google — is 50,000 URLs and 50MB
+ * uncompressed per file. 266,305 profiles need six, and the browse and content
+ * pages get a seventh so they are not buried behind a quarter of a million
+ * profile URLs.
+ *
+ * ROUTE HANDLERS RATHER THAN Next's generateSitemaps(). The convention-based
+ * helper emits a URL shape that has moved between Next versions, and the one
+ * thing a sitemap must be is a set of URLs that actually resolve. These routes
+ * emit exactly what the index advertises, and it is checkable by fetching them.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/** sitemaps.org's per-file ceiling. Not a tuning knob. */
+export const URLS_PER_SITEMAP = 50_000;
+
+/** PostgREST's own page ceiling — asking for more silently truncates. */
+const DB_PAGE = 1_000;
+
+/** Concurrent slug pages. Fifty sequential round trips is a slow cold request. */
+const CONCURRENCY = 6;
+
+/**
+ * Static and browse URLs. Counties, cities and types are read live so a new
+ * reference row appears without anyone remembering this file exists.
+ */
+const STATIC_PATHS = [
+  "/",
+  "/search",
+  "/counties",
+  "/cities",
+  "/types",
+  "/contractors",
+  "/contact",
+  "/about",
+  "/sources",
+  "/verify",
+  "/permits",
+  "/complaint",
+  "/hiring-checklist",
+  "/diagnostic",
+  "/terms",
+  "/privacy",
+  "/cookies",
+  "/dmca",
+  "/sms-terms",
+  "/featured-terms",
+] as const;
+
+/**
+ * ⚠ NO <lastmod>, ANYWHERE, AND THAT IS DELIBERATE.
+ *
+ * The only timestamps available are last_dbpr_sync_at — identical across every
+ * row and moving on every refresh — and updated_at, which the importer does not
+ * maintain. Stamping the sync date would tell Google that all 266,305 profiles
+ * changed simultaneously every week, which is both false and actively harmful:
+ * it burns crawl budget re-fetching a quarter of a million unchanged pages and
+ * teaches the crawler that our lastmod means nothing.
+ *
+ * Google ignores <changefreq> and <priority> outright, so those are absent too.
+ * A sitemap that says only "these URLs exist" is the honest one.
+ */
+function urlset(paths: string[]): string {
+  const urls = paths
+    .map((p) => `  <url><loc>${escapeXml(absoluteUrl(p))}</loc></url>`)
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** Run `fn` over `items` with at most `limit` in flight. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i]);
+      }
+    }),
+  );
+  return out;
+}
+
+/** How many contractor rows there are, and therefore how many child files. */
+export async function contractorSitemapCount(): Promise<number> {
+  const db = createClient();
+  const { count, error } = await db
+    .from("contractors")
+    .select("dbpr_sync_key", { count: "exact", head: true })
+    .not("slug", "is", null);
+  if (error) throw new Error(`sitemap count: ${error.message}`);
+  return Math.max(1, Math.ceil((count ?? 0) / URLS_PER_SITEMAP));
+}
+
+/**
+ * The index. Lists the pages file and one entry per contractor chunk.
+ */
+export async function sitemapIndex(): Promise<string> {
+  const chunks = await contractorSitemapCount();
+  const children = [
+    absoluteUrl("/sitemaps/pages.xml"),
+    ...Array.from({ length: chunks }, (_, i) => absoluteUrl(`/sitemaps/contractors-${i}.xml`)),
+  ];
+  const entries = children
+    .map((loc) => `  <sitemap><loc>${escapeXml(loc)}</loc></sitemap>`)
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>\n`;
+}
+
+/** Static pages plus every county, city and licence-type index. */
+export async function pagesSitemap(): Promise<string> {
+  const db = createClient();
+  const [counties, cities, types] = await Promise.all([
+    db.from("reference_counties").select("county_slug"),
+    db.from("reference_cities").select("city_slug"),
+    db.from("reference_license_types").select("type_code"),
+  ]);
+
+  const paths: string[] = [...STATIC_PATHS];
+  for (const c of counties.data ?? []) paths.push(`/county/${c.county_slug}`);
+  for (const c of cities.data ?? []) paths.push(`/city/${c.city_slug}`);
+  /**
+   * Lowercased because /type/[code] lowercases the segment when building links
+   * and uppercases it for the lookup. A sitemap listing /type/CGC would
+   * advertise a URL that resolves but differs in case from every internal link
+   * — two URLs for one page, which is the duplicate-content problem a sitemap
+   * exists to avoid.
+   */
+  for (const t of types.data ?? []) paths.push(`/type/${String(t.type_code).toLowerCase()}`);
+
+  return urlset(paths);
+}
+
+/**
+ * One chunk of contractor profile URLs.
+ *
+ * Ordered by slug, which is UNIQUE and NOT NULL on all 266,305 rows (verified
+ * 2026-08-05). Ordering is not decoration: PostgREST gives no stability
+ * guarantee for an unordered range, so paging without it can return a row twice
+ * and skip another — in a sitemap that means one URL advertised twice and one
+ * never advertised at all.
+ */
+export async function contractorSitemap(chunk: number): Promise<string | null> {
+  const chunks = await contractorSitemapCount();
+  if (!Number.isInteger(chunk) || chunk < 0 || chunk >= chunks) return null;
+
+  const db = createClient();
+  const start = chunk * URLS_PER_SITEMAP;
+  const offsets: number[] = [];
+  for (let o = 0; o < URLS_PER_SITEMAP; o += DB_PAGE) offsets.push(start + o);
+
+  const pages = await mapLimit(offsets, CONCURRENCY, async (from) => {
+    const { data, error } = await db
+      .from("contractors")
+      .select("slug")
+      .not("slug", "is", null)
+      .order("slug", { ascending: true })
+      .range(from, from + DB_PAGE - 1);
+    if (error) throw new Error(`sitemap chunk ${chunk} at ${from}: ${error.message}`);
+    return (data ?? []).map((r) => `/contractor/${r.slug}`);
+  });
+
+  const paths = pages.flat();
+  return urlset(paths);
+}
