@@ -110,7 +110,11 @@ try {
   console.log(`\n4 — the nav`);
   check("DBPR Sync link is present", has(">DBPR Sync<") || has('"DBPR Sync"'));
   check("it is marked as the current page", /aria-current="page"[^>]*>?[\s\S]{0,200}DBPR Sync|DBPR Sync[\s\S]{0,200}aria-current="page"/.test(html) || has('"/admin/sync"'));
-  check("Settings is NOT linked (route does not exist)", !has('"/admin/settings"'));
+  //   Was "Settings is NOT linked (route does not exist)" until task 159 built
+  //   it. The nav rule is that a link appears only once its route does, so this
+  //   assertion flips rather than being deleted — it still guards the rule,
+  //   just from the other side.
+  check("Settings IS linked (route built in 159)", has('"/admin/settings"'));
 
   console.log(`\n5 — nothing was invented`);
   //   The mockup's sample numbers must not appear anywhere on a page with no

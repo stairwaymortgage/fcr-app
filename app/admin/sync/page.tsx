@@ -5,6 +5,12 @@ import StatsStrip from "@/components/StatsStrip";
 import StatusBanner from "@/components/StatusBanner";
 import { requireAdmin } from "@/lib/auth";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
+import {
+  checkReferenceCounts,
+  REPAIR_MIGRATION,
+  VERIFY_COMMAND,
+  type ReferenceCountReport,
+} from "@/lib/reference-counts";
 import { createClient } from "@/lib/supabase/server";
 import {
   ACTIVE_SYNC_STATUSES,
@@ -117,7 +123,7 @@ export default async function AdminSyncPage({
    */
   const db = createClient();
 
-  const [runsResult, runCounts, contractorTotal, headerCounts] = await Promise.all([
+  const [runsResult, runCounts, contractorTotal, headerCounts, referenceCounts] = await Promise.all([
     db
       .from("sync_runs")
       .select(SYNC_RUN_COLUMNS, { count: "exact" })
@@ -126,6 +132,14 @@ export default async function AdminSyncPage({
     loadRunCounts(db),
     db.from("contractors").select("dbpr_sync_key", { count: "exact", head: true }),
     loadHeaderCounts(db),
+    /**
+     * The drift check runs on every page load, alongside everything else, and
+     * costs four queries. It belongs HERE rather than on a settings page
+     * because this is where the refresh workflow lives: the run that
+     * invalidates these counts and the notice that they need repairing should
+     * be on one screen.
+     */
+    checkReferenceCounts(db),
   ]);
 
   if (runsResult.error) {
@@ -514,6 +528,11 @@ export default async function AdminSyncPage({
             </Panel>
           </div>
 
+          {/* ── REFERENCE COUNT DRIFT ─────────────────────────────────── */}
+          <div className="mb-8">
+            <DriftPanel report={referenceCounts} />
+          </div>
+
           {/* ── HISTORY ───────────────────────────────────────────────── */}
           <div className="border border-gray-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-6 py-4">
@@ -654,6 +673,134 @@ export default async function AdminSyncPage({
         </div>
       </main>
     </>
+  );
+}
+
+/**
+ * Reference-count drift — "are /counties and /types serving current figures?"
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE ONE FAILURE ON THIS PAGE THAT IS INVISIBLE EVERYWHERE ELSE.
+ *
+ * The public browse pages read pre-computed integers. A DBPR refresh moves
+ * every underlying count and updates none of them, and the repair is a SQL file
+ * a human runs. Nothing enforced that, nothing reported it, and the symptom is
+ * a page that looks perfectly normal while being a week wrong — which is how
+ * reference_license_types read 0 for all 29 rows for five weeks.
+ *
+ * So it is stated as a first-class outcome next to the run history, not folded
+ * into a stat card. A number that is quietly wrong deserves more than a badge.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+function DriftPanel({ report }: { report: ReferenceCountReport }) {
+  if (report.error || !report.counties || !report.types) {
+    return (
+      <Panel title="Reference counts" meta="not measurable">
+        <p className="text-note leading-[1.6] text-gray-600">
+          The check could not run, so whether /counties and /types are current is
+          unknown — which is not the same as fine. Run{" "}
+          <code className="font-mono text-[12px]">{VERIFY_COMMAND}</code> to
+          measure it directly.
+        </p>
+      </Panel>
+    );
+  }
+
+  const { counties, types } = report;
+
+  return (
+    <Panel
+      title="Reference counts"
+      meta={report.ok ? "in agreement" : "repair needed"}
+    >
+      {!report.ok && (
+        <p className="mb-5 border-l-[3px] border-status-error bg-status-errorBg px-4 py-3 text-note leading-[1.6] text-status-error">
+          <strong className="font-semibold">
+            /counties and /types are serving stale figures.
+          </strong>{" "}
+          The stored counts no longer match the contractors table, which is what
+          a DBPR refresh does to them. Run{" "}
+          <code className="font-mono text-[12px]">{REPAIR_MIGRATION}</code> in
+          the SQL editor to bring them back into line.
+        </p>
+      )}
+
+      <dl className="grid grid-cols-[150px_1fr] gap-x-4 border border-gray-200">
+        <DriftRow
+          term="Counties"
+          check={counties}
+          note={`${counties.rows} rows · Florida-addressed only`}
+        />
+        <DriftRow
+          term="License types"
+          check={types}
+          note={`${types.rows} rows · all states`}
+        />
+      </dl>
+
+      <p className="mt-4 text-micro leading-[1.5] text-gray-500">
+        {/* The limitation is on the page, not only in lib/reference-counts.ts.
+            An operator who reads "in agreement" as "verified correct" and skips
+            the script has been misled by this panel, so it says what it is. */}
+        This compares <strong className="font-medium text-gray-600">totals</strong>,
+        which is cheap enough to run on every page load but would not catch two
+        per-row errors that cancel out.{" "}
+        <code className="font-mono">{VERIFY_COMMAND}</code> compares all 806 rows
+        individually and is the exact answer. Cities are checked only there — the
+        equivalent query here needs a 710-value filter.
+      </p>
+    </Panel>
+  );
+}
+
+function DriftRow({
+  term,
+  check,
+  note,
+}: {
+  term: string;
+  check: { stored: number; live: number; drifted: boolean };
+  note: string;
+}) {
+  return (
+    <div className="col-span-2 grid grid-cols-[150px_1fr] gap-4 border-b border-gray-100 px-4 py-3 last:border-b-0 max-[520px]:grid-cols-1 max-[520px]:gap-1">
+      <dt className="font-mono text-label font-medium uppercase tracking-[0.06em] text-gray-500">
+        {term}
+      </dt>
+      <dd className="text-note leading-[1.55] text-ink">
+        <span className="flex flex-wrap items-baseline gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[11.5px] font-semibold ${
+              check.drifted
+                ? "bg-status-errorBg text-status-error"
+                : "bg-status-successBg text-status-success"
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 rounded-full ${
+                check.drifted ? "bg-status-error" : "bg-status-success"
+              }`}
+            />
+            {check.drifted ? "Drifted" : "In agreement"}
+          </span>
+          <span className="font-mono text-[12.5px] text-gray-700">
+            stored {check.stored.toLocaleString("en-US")} · live{" "}
+            {check.live.toLocaleString("en-US")}
+            {check.drifted && (
+              <span className="text-status-error">
+                {" "}
+                · {check.live > check.stored ? "+" : ""}
+                {(check.live - check.stored).toLocaleString("en-US")}
+              </span>
+            )}
+          </span>
+        </span>
+        <span className="mt-1 block font-mono text-chip uppercase tracking-label text-gray-500">
+          {note}
+        </span>
+      </dd>
+    </div>
   );
 }
 

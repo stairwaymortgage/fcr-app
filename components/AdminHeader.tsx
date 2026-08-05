@@ -66,11 +66,10 @@ type AdminNavLink = {
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * FOUR LINKS, THOUGH THE MOCKUP SHOWS FIVE — AND THE FIFTH IS LISTED HERE
- * RATHER THAN RENDERED.
+ * ALL FIVE LINKS, MATCHING THE MOCKUP — REACHED ONE ROUTE AT A TIME.
  *
  * admin_header.html and the five 08_admin/ pages all show Claims · Leads ·
- * Contractors · DBPR Sync · Settings. Four of those routes exist:
+ * Contractors · DBPR Sync · Settings. All five routes now exist:
  *
  *   /admin/claims       built in task 144
  *   /admin/leads        built in task 155 — the reason this component stopped
@@ -82,22 +81,26 @@ type AdminNavLink = {
  *                       held zero rows until that instrumentation landed, and
  *                       the one import this project has performed predates it.
  *
- * NOT BUILT, href recorded so the next person does not have to re-derive it
- * from the mockups:
+ *   /admin/settings     built in task 159 — as a READ-ONLY system state page,
+ *                       not the mockup's settings screen. Five of that
+ *                       mockup's six sections configure systems that do not
+ *                       exist (there are no admin notifications to toggle, no
+ *                       password to change under magic-link auth, no role
+ *                       hierarchy); they are absent and the page says why.
  *
- *   /admin/settings      admin_settings.html: sync cadence, integrations,
- *                        team members, danger zone
- *
+ * Every route in the mockup's nav now exists. The rule that got us here stays:
  * ADD THE ENTRY WHEN THE ROUTE LANDS, not before. ContractorHeader carried a
  * `built: boolean` for exactly this and it was deleted in 148 once the last
  * unbuilt route went away; the lesson recorded there is that a nav link
  * pointing at a 404 is the worst possible first impression of a tool someone
  * has been told to trust, and that hiding beats disabling.
  *
- * NO BADGE ON DBPR SYNC, deliberately. The obvious candidate is the orphan
- * count, and a gold pill reading 4,812 would demand an action this product does
- * not have — orphans are counted and never deleted, so the number is context,
- * not a queue. Badges here mean "someone must do something".
+ * NO BADGE ON DBPR SYNC OR SETTINGS, deliberately. The obvious candidates are
+ * the orphan count and the reference-count drift flag, and a gold pill reading
+ * 4,812 would demand an action this product does not have — orphans are counted
+ * and never deleted, so the number is context, not a queue. Badges here mean
+ * "someone must do something", and diluting that makes the two that do mean it
+ * easier to ignore.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 const NAV_LINKS: readonly AdminNavLink[] = [
@@ -105,6 +108,7 @@ const NAV_LINKS: readonly AdminNavLink[] = [
   { href: "/admin/leads", label: "Leads", badge: "leads" },
   { href: "/admin/contractors", label: "Contractors" },
   { href: "/admin/sync", label: "DBPR Sync" },
+  { href: "/admin/settings", label: "Settings" },
 ];
 
 /**
