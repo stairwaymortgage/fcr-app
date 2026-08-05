@@ -104,9 +104,32 @@ export const dataAsOf = cache(async (): Promise<string> => {
     const newest = data?.[0]?.last_dbpr_sync_at;
     return newest ? format(newest) : FALLBACK;
   } catch (err) {
-    // createClient() throws when the env vars are missing, which is a build or
-    // deploy misconfiguration rather than a request-time fault. The chrome
-    // should still render so the rest of the page's error is visible.
+    /**
+     * ⚠ NEXT'S CONTROL-FLOW ERRORS MUST BE RE-THROWN, NOT SWALLOWED.
+     *
+     * cookies() inside createClient() throws a DYNAMIC_SERVER_USAGE error
+     * during static generation. That is not a fault — it is how Next signals
+     * "this route is dynamic", and it is meant to propagate so the route gets
+     * marked ƒ instead of ○.
+     *
+     * The first version of this catch treated it as a database failure and
+     * returned FALLBACK, which printed "[data-as-of] unavailable" for every
+     * route on every build. Nothing user-visible broke, because every route
+     * here reads cookies elsewhere too and was marked dynamic anyway — but a
+     * route whose ONLY dynamic dependency was this function would have been
+     * rendered STATIC with the fallback date baked into it permanently. That is
+     * the exact failure this module exists to remove.
+     *
+     * redirect() and notFound() use the same mechanism, so the digest check
+     * covers them: neither is thrown from here today, and neither should ever
+     * be caught by a helper that does not own the routing decision.
+     */
+    const digest = (err as { digest?: unknown } | null)?.digest;
+    if (typeof digest === "string") throw err;
+
+    // A genuine failure: createClient() throws when the env vars are missing,
+    // which is a build or deploy misconfiguration rather than a request-time
+    // fault. The chrome should still render so the page's real error is visible.
     console.error("[data-as-of] unavailable", err);
     return FALLBACK;
   }

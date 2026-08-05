@@ -7,10 +7,13 @@ import { requireAdmin } from "@/lib/auth";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { createClient } from "@/lib/supabase/server";
 import {
+  ACTIVE_SYNC_STATUSES,
   countLabel,
   daysSince,
   fileSizeLabel,
+  IMPORTER_COMMAND,
   orphanCutoff,
+  queueWait,
   runDuration,
   SYNC_RUN_COLUMNS,
   SYNC_STATUS_DOT,
@@ -19,6 +22,8 @@ import {
   type SyncRun,
 } from "@/lib/sync-runs";
 import { absoluteTime, relativeTime } from "@/lib/time";
+
+import { queueRefresh } from "./actions";
 
 /**
  * DBPR sync status — /admin/sync
@@ -42,11 +47,14 @@ import { absoluteTime, relativeTime } from "@/lib/time";
  *
  * NOT BUILT FROM THE MOCKUP, EACH FOR A REASON:
  *
- *   · "Run Sync Manually". The refresh is a local Node script reading a 47.7MB
- *     CSV off disk and holding 266k fingerprints in memory. There is no server
- *     that can run it — a Vercel function times out long before, and the source
- *     file is not reachable from one. A button that cannot work is worse than
- *     no button. See the runner note below.
+ *   · "Run Sync Manually" — shipped as "Trigger refresh", which QUEUES rather
+ *     than runs. The refresh is a local Node script reading a 47.7MB CSV off
+ *     disk and holding 266k fingerprints in memory; no Vercel function can do
+ *     that, and the source file is not reachable from one. So the button
+ *     records a request with the requester's name, and the page tells the
+ *     operator the command to run. A button that spun and then claimed success
+ *     would be the most damaging lie this surface could tell, because the one
+ *     question it exists to answer is "is our data current?".
  *   · "View Logs" / /admin/sync/logs. The log IS this table; a second route
  *     showing the same twelve rows unpaginated is not a feature.
  *   · Per-record change lists ("Added · New licenses issued by DBPR · +132").
@@ -80,7 +88,20 @@ export const metadata: Metadata = {
 /** The mockup's "Last 12 Runs". Weekly cadence makes that a quarter of history. */
 const HISTORY_LIMIT = 12;
 
-export default async function AdminSyncPage() {
+/** ?e= codes set by ./actions.ts. Never a raw Postgres message. */
+const ERROR_TEXT: Record<string, string> = {
+  active:
+    "A refresh is already queued or running, so nothing was added. The one below is still waiting.",
+  failed: "Something went wrong on our side. Nothing was queued — try again.",
+  constraint:
+    "The database has not been migrated yet. Run db/migrations/20260805_sync_runs_queued.sql, then press this again.",
+};
+
+export default async function AdminSyncPage({
+  searchParams,
+}: {
+  searchParams: { e?: string };
+}) {
   const user = await requireAdmin();
 
   /**
@@ -108,7 +129,23 @@ export default async function AdminSyncPage() {
   // `as unknown as` for the reason /admin/leads needs it: the select list is an
   // assembled string, so supabase-js cannot infer a row type from it.
   const runs = (runsResult.data ?? []) as unknown as SyncRun[];
-  const latest = runs[0] ?? null;
+
+  /**
+   * THE BANNER DESCRIBES THE LAST FINISHED ATTEMPT, NOT THE NEWEST ROW.
+   *
+   * Once a refresh can be queued, the newest row is frequently a request that
+   * has not run — and "last run · queued" is a category error. Worse, a queued
+   * or running row rendered here would say the same thing the trigger section
+   * above already says, in a louder voice.
+   *
+   * So the three sections answer three different questions: the trigger section
+   * owns "is something outstanding", this owns "how did the last completed
+   * refresh go", and the history table owns everything. Found within the
+   * fetched page rather than queried, which is safe because the guard permits
+   * at most one outstanding run — so a finished row is at worst second.
+   */
+  const latest =
+    runs.find((r) => r.status === "success" || r.status === "failed") ?? null;
 
   /**
    * The newest SUCCESSFUL run, which is not necessarily the newest run. A failed
@@ -132,6 +169,23 @@ export default async function AdminSyncPage() {
         "id" | "started_at" | "completed_at" | "records_total" | "records_orphaned"
       >
     | null;
+
+  /**
+   * The outstanding run, if there is one — what the queue guard keys off.
+   *
+   * Queried separately rather than found within `runs` for the same reason
+   * lastSuccess is: the history table is capped at twelve, and a request queued
+   * months ago and never actioned would drop off the bottom exactly when it
+   * most needs surfacing. Ordered OLDEST first, because that is the one the
+   * importer will claim and therefore the one to tell the operator about.
+   */
+  const { data: activeRows } = await db
+    .from("sync_runs")
+    .select(SYNC_RUN_COLUMNS)
+    .in("status", ACTIVE_SYNC_STATUSES)
+    .order("queued_at", { ascending: true, nullsFirst: false })
+    .limit(1);
+  const active = (activeRows?.[0] ?? null) as unknown as SyncRun | null;
 
   /**
    * ORPHANS, COUNTED LIVE RATHER THAN READ OFF THE RUN ROW.
@@ -222,22 +276,12 @@ export default async function AdminSyncPage() {
           ) : (
             <div className="mb-8">
               <StatusBanner
-                variant={
-                  latest.status === "success"
-                    ? "success"
-                    : latest.status === "running"
-                      ? "warn"
-                      : "error"
-                }
+                variant={latest.status === "success" ? "success" : "error"}
                 tag={`Last run · ${SYNC_STATUS_LABEL[latest.status]}`}
                 headline={
                   latest.status === "success" ? (
                     <>
                       Refresh completed <em className="italic">without errors</em>
-                    </>
-                  ) : latest.status === "running" ? (
-                    <>
-                      A run is <em className="italic">still open</em>
                     </>
                   ) : (
                     <>
@@ -251,6 +295,20 @@ export default async function AdminSyncPage() {
               />
             </div>
           )}
+
+          {searchParams.e && ERROR_TEXT[searchParams.e] && (
+            <p
+              role="alert"
+              className="mb-6 border-l-[3px] border-status-error bg-status-errorBg px-4 py-3 text-note text-status-error"
+            >
+              {ERROR_TEXT[searchParams.e]}
+            </p>
+          )}
+
+          {/* ── TRIGGER ───────────────────────────────────────────────── */}
+          <div className="mb-8">
+            <TriggerSection active={active} />
+          </div>
 
           {/* ── STATS ─────────────────────────────────────────────────── */}
           <div className="mb-8">
@@ -501,17 +559,38 @@ export default async function AdminSyncPage() {
                       <td className="px-5 py-3.5 align-top font-mono text-[12.5px] text-gray-700">
                         {run.id.slice(0, 8)}
                       </td>
+                      {/* A queued row has not started, so its started_at is
+                          the moment it was requested and showing it under
+                          "Started" would be false. The importer resets
+                          started_at when it claims the row, at which point
+                          this column becomes true of it. */}
                       <td className="px-5 py-3.5 align-top">
-                        <time
-                          dateTime={run.started_at}
-                          title={absoluteTime(run.started_at)}
-                          className="whitespace-nowrap font-mono text-label tracking-[0.02em] text-gray-500"
-                        >
-                          {relativeTime(run.started_at)}
-                        </time>
-                        <p className="mt-0.5 font-mono text-chip uppercase tracking-label text-gray-500">
-                          {run.triggered_by}
-                        </p>
+                        {run.status === "queued" ? (
+                          <>
+                            <span className="whitespace-nowrap font-mono text-label tracking-[0.02em] text-gray-500">
+                              Not started
+                            </span>
+                            {run.queued_at && (
+                              <p className="mt-0.5 font-mono text-chip uppercase tracking-label text-gray-500">
+                                requested {relativeTime(run.queued_at)}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <time
+                              dateTime={run.started_at}
+                              title={absoluteTime(run.started_at)}
+                              className="whitespace-nowrap font-mono text-label tracking-[0.02em] text-gray-500"
+                            >
+                              {relativeTime(run.started_at)}
+                            </time>
+                            <p className="mt-0.5 font-mono text-chip uppercase tracking-label text-gray-500">
+                              {run.triggered_by}
+                              {run.queued_at && " · queued"}
+                            </p>
+                          </>
+                        )}
                       </td>
                       <td className="px-5 py-3.5 align-top font-mono text-[12.5px] text-gray-700">
                         {runDuration(run) ?? "—"}
@@ -568,6 +647,144 @@ export default async function AdminSyncPage() {
   );
 }
 
+/**
+ * Trigger refresh — the queue, and the honesty about what a queue is.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TWO STATES, AND THE BUTTON IS ABSENT IN THE SECOND RATHER THAN DISABLED.
+ *
+ * A `disabled` button is a dead control that gives no reason; the same lesson
+ * AdminHeader records about nav links pointing at 404s — hiding beats
+ * disabling. When something is outstanding, its own card takes the space and
+ * says what is waiting and what to do about it, which is strictly more
+ * information than a greyed-out button.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * The command is rendered as selectable text rather than described in prose,
+ * because the operator's next action is to paste it into a terminal. It comes
+ * from IMPORTER_COMMAND so the page, the runner note at the foot of this file
+ * and lib/sync-runs.ts cannot drift into naming different scripts.
+ */
+function TriggerSection({ active }: { active: SyncRun | null }) {
+  if (active) {
+    const isQueued = active.status === "queued";
+    const waited = queueWait(active);
+
+    return (
+      <section
+        className={`border bg-white ${
+          isQueued ? "border-gray-300" : "border-status-warnEdge"
+        }`}
+      >
+        <div
+          className={`flex flex-wrap items-start justify-between gap-4 border-b px-6 py-4 ${
+            isQueued
+              ? "border-gray-200 bg-gray-50"
+              : "border-status-warnEdge bg-status-warnBg"
+          }`}
+        >
+          <h2 className="inline-flex items-center gap-2.5 font-mono text-label font-semibold uppercase tracking-eyebrow text-navy">
+            <span aria-hidden="true" className="h-px w-4 bg-gold" />
+            {isQueued ? "Refresh queued" : "Refresh running"}
+          </h2>
+          <span
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[11.5px] font-semibold ${SYNC_STATUS_PILL[active.status]}`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 rounded-full ${SYNC_STATUS_DOT[active.status]}`}
+            />
+            {SYNC_STATUS_LABEL[active.status]}
+          </span>
+        </div>
+
+        <div className="px-6 py-5">
+          {isQueued ? (
+            <>
+              <p className="mb-4 text-note leading-[1.6] text-gray-700">
+                Requested{" "}
+                {active.queued_at ? relativeTime(active.queued_at) : "at an unrecorded time"}
+                {waited && <> · waiting {waited}</>}. Nothing runs on its own —
+                a refresh happens when someone with the repository checked out
+                runs the importer, and it will pick this request up and complete
+                it.
+              </p>
+              <p className="mb-2 font-mono text-label font-medium uppercase tracking-label text-gray-500">
+                Run this
+              </p>
+              <p className="mb-4 select-all break-all border border-gray-200 bg-gray-50 px-4 py-3 font-mono text-[13px] text-ink">
+                {IMPORTER_COMMAND}
+              </p>
+              <p className="text-micro leading-[1.5] text-gray-500">
+                Then run{" "}
+                <code className="font-mono">
+                  db/migrations/20260805_reference_counts_repair.sql
+                </code>
+                . Pressing the button again while this is waiting adds nothing —
+                the request is already recorded.
+              </p>
+            </>
+          ) : (
+            <p className="text-note leading-[1.6] text-gray-700">
+              A run has been open since {absoluteTime(active.started_at)}. Either
+              it is still working, or the process died before it could record an
+              outcome — a run that crashes leaves its row exactly like this. No
+              new refresh can be queued until it closes, because two importers
+              writing the same 266,305 rows at once is not a state worth
+              producing.
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="border border-gray-200 bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-6 py-4">
+        <h2 className="inline-flex items-center gap-2.5 font-mono text-label font-semibold uppercase tracking-eyebrow text-navy">
+          <span aria-hidden="true" className="h-px w-4 bg-gold" />
+          Trigger refresh
+        </h2>
+        <p className="font-mono text-micro uppercase tracking-label text-gray-500">
+          nothing queued
+        </p>
+      </header>
+
+      <div className="flex flex-wrap items-start justify-between gap-6 px-6 py-5">
+        <div className="min-w-[280px] max-w-[620px] flex-1">
+          <p className="mb-3 text-note leading-[1.6] text-gray-700">
+            <strong className="font-semibold text-ink">
+              This queues a refresh; it does not run one.
+            </strong>{" "}
+            The importer reads a 47.7 MB file from disk and holds a fingerprint
+            of every existing record in memory, which no serverless function can
+            do — and the source file is not reachable from one. Pressing this
+            records the request, with your name against it, for whoever runs the
+            script next.
+          </p>
+          <p className="text-micro leading-[1.5] text-gray-500">
+            The queued request appears here and in the history below until the
+            importer claims it.
+          </p>
+        </div>
+
+        {/* A plain form POST to a Server Action. No client JS on this page, and
+            no confirm dialog — queueing is reversible by ignoring it, and the
+            guard already prevents a second one. */}
+        <form action={queueRefresh}>
+          <button
+            type="submit"
+            className={`whitespace-nowrap bg-navy px-5 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
+          >
+            Trigger refresh
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
 /** "Jim Blackburn" -> "JB". Same helper as the other admin pages. */
 function initialsFor(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
@@ -599,18 +816,12 @@ async function loadHeaderCounts(db: ReturnType<typeof createClient>) {
   return { pendingClaims: pendingClaims.count ?? 0, newLeads: newLeads.count ?? 0 };
 }
 
+/**
+ * Only ever handed a finished run — see where `latest` is derived. The queued
+ * and running cases live in TriggerSection, which is why there is no branch for
+ * them here.
+ */
 function BannerDetail({ run }: { run: SyncRun }) {
-  if (run.status === "running") {
-    return (
-      <>
-        Opened {relativeTime(run.started_at)} and never closed. Either it is still
-        working, or the process died before it could record an outcome — a run that
-        crashes leaves its row exactly like this. Nothing here treats an unfinished
-        run as a success.
-      </>
-    );
-  }
-
   if (run.status === "failed") {
     return (
       <>

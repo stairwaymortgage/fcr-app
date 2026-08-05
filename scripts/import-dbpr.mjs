@@ -260,19 +260,91 @@ async function loadFingerprints(db, onProgress) {
  */
 const SOURCE_URI = `file:${CSV_PATH}`;
 
+/**
+ * Claim the oldest queued refresh, or open a fresh row if nobody asked.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE QUEUE EXISTS BECAUSE THE PERSON WHO WANTS A REFRESH AND THE PERSON WHO
+ * CAN RUN ONE ARE NOT THE SAME PERSON.
+ *
+ * /admin/sync writes status='queued' with the requester's user id; this picks
+ * it up. Running the script directly still works exactly as before — an unasked
+ * refresh is a perfectly good refresh — it just opens its own row.
+ *
+ * CLAIMED WITH A COMPARE-AND-SWAP, not a bare update. The filter repeats
+ * `.eq("status", "queued")` so that if two importers start together, the second
+ * one's update matches zero rows and it falls through to opening its own row
+ * rather than both writing counts into the same audit record. PostgREST returns
+ * the updated rows, so an empty array IS the "somebody beat me to it" signal.
+ *
+ * started_at is RESET here. On a queued row it held the request time (the
+ * column is NOT NULL DEFAULT now()), and leaving it would make
+ * completed_at - started_at report the run duration plus however long the
+ * request sat waiting — a refresh queued Friday and run Monday would show a
+ * three-day duration. queued_at keeps the request time; see
+ * db/migrations/20260805_sync_runs_queued.sql.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 async function startRun(db, { sourceBytes, sourceHash }) {
+  const provenance = {
+    source_url: SOURCE_URI,
+    source_file_size: sourceBytes,
+    source_file_hash: sourceHash,
+  };
+
+  const { data: queued, error: queueError } = await db
+    .from("sync_runs")
+    .select("id, queued_at")
+    .eq("status", "queued")
+    .order("queued_at", { ascending: true, nullsFirst: false })
+    .limit(1);
+
+  /**
+   * A missing 'queued' status means the migration has not been applied. That is
+   * not fatal — the importer's own path never needed it — so it warns and
+   * carries on rather than refusing to refresh the registry over a feature it
+   * is not using.
+   */
+  if (queueError) {
+    console.warn(`⚠ could not check the refresh queue: ${queueError.message}`);
+    console.warn("  opening a fresh run instead. Has 20260805_sync_runs_queued.sql been applied?\n");
+  }
+
+  if (!queueError && queued?.length) {
+    const { data: claimed, error: claimError } = await db
+      .from("sync_runs")
+      .update({ status: "running", started_at: new Date().toISOString(), ...provenance })
+      .eq("id", queued[0].id)
+      .eq("status", "queued")
+      .select("id, started_at, queued_at")
+      .maybeSingle();
+
+    if (claimError) {
+      throw new Error(`could not claim queued run ${queued[0].id}: ${claimError.message}`);
+    }
+    if (claimed) {
+      const waited = claimed.queued_at
+        ? Math.round((new Date(claimed.started_at) - new Date(claimed.queued_at)) / 1000)
+        : null;
+      console.log(
+        `claimed queued refresh ${claimed.id}` +
+        (waited === null ? "" : ` · requested ${waited}s ago`),
+      );
+      return claimed;
+    }
+    console.warn("⚠ the queued run was claimed by someone else — opening a fresh row\n");
+  }
+
   const { data, error } = await db
     .from("sync_runs")
     .insert({
       status: "running",
       triggered_by: "manual",
-      // triggered_by_user_id stays null: a CLI run has no session, and inventing
-      // one would put a name against work nobody signed in to do. The cron
-      // runner will leave it null too; a human-triggered run from the admin UI
-      // is what that column is for.
-      source_url: SOURCE_URI,
-      source_file_size: sourceBytes,
-      source_file_hash: sourceHash,
+      // triggered_by_user_id stays null on a directly-run import: a CLI run has
+      // no session, and inventing one would put a name against work nobody
+      // signed in to do. A row CLAIMED from the queue keeps the requester's id,
+      // which is the whole point of that column.
+      ...provenance,
     })
     .select("id, started_at")
     .single();
