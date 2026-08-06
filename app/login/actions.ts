@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { z } from "zod";
 
+import { LIMITS as RATE, checkLimit, requestIp } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -76,6 +77,47 @@ export async function sendLoginCode(input: unknown): Promise<LoginResult> {
 
   if (website) {
     // Honeypot. Reported as success so a bot learns nothing from the response.
+    return { ok: true };
+  }
+
+  /**
+   * RATE LIMIT — TWO BUCKETS THAT ARE REFUSED IN TWO DIFFERENT WAYS, and the
+   * difference is the point rather than an inconsistency.
+   *
+   * PER-IP is refused OUT LOUD. The only person who trips it is the person
+   * making the requests, and they are usually a real contractor who did not get
+   * the first email and is pressing the button again. Telling them to wait is
+   * the honest and useful answer.
+   *
+   * PER-EMAIL IS REFUSED SILENTLY — we return ok:true and send nothing.
+   *
+   * ⚠ DO NOT "FIX" THIS INTO AN HONEST ERROR MESSAGE. This whole action is
+   * built so that the response is identical whether or not an account exists
+   * (see the note at the top of the file). A visible "too many codes have been
+   * sent to that address" would reintroduce exactly the oracle that design
+   * removes, and a worse one: it answers "has anyone been requesting codes for
+   * this address", which is a question about a THIRD PARTY that the person
+   * asking has no relationship to. The attack this bucket exists to stop —
+   * sendLoginCode({ email: victim }) in a loop — is run by someone who is not
+   * the victim, so the refusal must be invisible to them.
+   *
+   * The real contractor's experience of a silent drop is one missing email,
+   * which is the same thing the honeypot and every send failure above already
+   * look like, and the copy tells them to try again.
+   */
+  const ipVerdict = await checkLimit(RATE.LOGIN_SEND_IP, requestIp());
+  if (!ipVerdict.allowed) {
+    return {
+      ok: false,
+      error: "Too many sign-in requests. Wait a few minutes and try again.",
+    };
+  }
+
+  const emailVerdict = await checkLimit(RATE.LOGIN_SEND_EMAIL, email);
+  if (!emailVerdict.allowed) {
+    console.warn("[login] send suppressed — per-address limit reached, reported as success", {
+      retryAfter: emailVerdict.retryAfter,
+    });
     return { ok: true };
   }
 
@@ -173,6 +215,45 @@ export async function verifyLoginCode(input: unknown): Promise<LoginResult> {
   const token = parsed.data.token.replace(/\D/g, "");
   if (token.length < 4 || token.length > 12) {
     return { ok: false, error: "That code doesn't look right. It's the number in your email." };
+  }
+
+  /**
+   * RATE LIMIT — THE BRUTE-FORCE CONTROL. The most security-critical limit in
+   * the application, and the reason is arithmetic: the code is EIGHT digits, so
+   * a guess has a 1-in-100,000,000 chance. Unlimited attempts turn that from a
+   * wall into a waiting game — a few hours of requests against a known
+   * contractor's address is a realistic path to a session.
+   *
+   * KEYED ON THE EMAIL FIRST, because that is what the guess is against. The
+   * per-IP bucket behind it is the secondary net for someone spraying many
+   * addresses from one place rather than hammering one address.
+   *
+   * ⚠ THIS FAILS OPEN, WHICH HERE MEANS UNLIMITED GUESSES DURING A POSTGRES
+   * OUTAGE. That is the one genuinely uncomfortable consequence of the
+   * fail-open policy in lib/rate-limit.ts, and it is taken with two things
+   * behind it: Supabase enforces its own verification limits underneath, and a
+   * login nobody can complete is itself an outage. If that judgement is ever
+   * revisited, revisit it HERE — at this call site — not by flipping the
+   * default for all six endpoints at once.
+   *
+   * REFUSAL WEARS THE SAME BLAND MESSAGE as a wrong code, for the same reason:
+   * the failure text on this path must never distinguish "wrong code" from
+   * "no such account", or it enumerates which contractors have signed up.
+   */
+  const attemptVerdict = await checkLimit(RATE.LOGIN_VERIFY_EMAIL, email);
+  const ipAttemptVerdict = attemptVerdict.allowed
+    ? await checkLimit(RATE.LOGIN_VERIFY_IP, requestIp())
+    : attemptVerdict;
+
+  if (!attemptVerdict.allowed || !ipAttemptVerdict.allowed) {
+    console.warn("[login] verification refused — attempt limit reached", {
+      perEmail: !attemptVerdict.allowed,
+      perIp: !ipAttemptVerdict.allowed,
+    });
+    return {
+      ok: false,
+      error: "Too many attempts. Request a new code and try again in a few minutes.",
+    };
   }
 
   const supabase = createClient();

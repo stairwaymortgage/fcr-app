@@ -744,6 +744,10 @@ const ERROR_TEXT: Record<string, string> = {
   message: "Your message must be between 10 and 2,000 characters.",
   contractor: "We couldn’t match that contractor. Please reload and try again.",
   spam: "That submission looked automated. Please try again.",
+  // Phrased as "we've received" rather than "you've sent" on purpose: shared
+  // office wifi and mobile carriers put several real people behind one address,
+  // so the person reading this may not be the one who used up the allowance.
+  rate: "We’ve already received several messages from your connection. Please try again later.",
   failed: "Something went wrong on our side. Please try again in a moment.",
 };
 

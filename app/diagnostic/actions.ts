@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { SMS_CONSENT_TEXT } from "@/lib/consent";
 import { pushLeadToGhl } from "@/lib/ghl";
+import { LIMITS as RATE, checkLimits, requestIp } from "@/lib/rate-limit";
 import { determineRouting, routesToJson } from "@/lib/lead-routing";
 import {
   CAPTURE_FIELDS,
@@ -186,6 +187,96 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
   const referringUrl = data.referringSlug ? `/contractor/${data.referringSlug}` : null;
 
   /**
+   * RATE LIMIT — after validation, before any database work or any GHL call.
+   *
+   * Everything above this line is string work on data already in memory, so a
+   * malformed flood costs nothing and never reaches Postgres. This is the first
+   * point where a WELL-FORMED flood — the one the limiter exists for — is
+   * stopped, and it is one round trip ahead of the insert, the GHL contact, the
+   * GHL opportunity and the concierge callback that would otherwise follow.
+   *
+   * THE REFUSAL TELLS THE VISITOR WHAT TO DO INSTEAD. A homeowner sharing an
+   * office or CGNAT address can legitimately land here (see the note on
+   * DIAGNOSTIC_IP_DAY), so the message must not read as a broken form or an
+   * accusation — it routes them to the phone, which is the same concierge the
+   * form would have reached.
+   */
+  const limit = await checkLimits([
+    { spec: RATE.DIAGNOSTIC_IP_BURST, identifier: requestIp() },
+    { spec: RATE.DIAGNOSTIC_IP_DAY, identifier: requestIp() },
+  ]);
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      error:
+        "We've already received a few requests from your connection today. " +
+        "If you still need help, call us and we'll pick it up from there.",
+    };
+  }
+
+  const admin = createAdminClient();
+
+  /**
+   * DUPLICATE SUPPRESSION — the same person, inside 24 hours, is one lead.
+   *
+   * ⚠ THIS MATTERS MORE HERE THAN ON THE INQUIRY FORM, because a duplicate is
+   * not just a duplicate row: it is a second GHL contact, a second opportunity
+   * in the pipeline, and a second concierge callback to someone who has already
+   * been called. That is a CRM the sales process stops trusting.
+   *
+   * MATCHED ON EITHER EMAIL OR PHONE, not both. A spammer who rotates one
+   * usually does not rotate the other, and a real homeowner who retypes their
+   * email still has the same phone. Scoped to the diagnostic source so a lead
+   * captured by some other route never suppresses one captured here.
+   *
+   * ⚠ IT DOES SUPPRESS A GENUINE RETAKE. Someone who completes the wizard, then
+   * redoes it within a day with DIFFERENT answers, has that second set
+   * discarded. Accepted knowingly: the concierge already has their number and
+   * the call has not happened yet, so the answers are refined on the phone —
+   * whereas a second row means two people call the same homeowner about the same
+   * roof. If this ever needs to change, the fix is to UPDATE the existing row's
+   * diagnostic_answers rather than to drop the suppression.
+   *
+   * REPORTED AS SUCCESS, DELIBERATELY. Their request genuinely did arrive the
+   * first time, so "sent" is the truthful answer — and a "duplicate" error would
+   * tell a spammer exactly which of their identities has already landed.
+   *
+   * A FAILED CHECK FALLS THROUGH TO THE INSERT. The worst case is the duplicate
+   * we have always had. A dropped lead is the funnel's whole product.
+   */
+  const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: recentLead, error: dedupeError } = await admin
+    .from("leads")
+    .select("id")
+    .eq("lead_source", "diagnostic_flow")
+    .gte("created_at", dedupeSince)
+    /**
+     * VALUES ARE QUOTED. PostgREST's `or` filter is a comma-separated string,
+     * so an unquoted value containing a comma or a parenthesis would be parsed
+     * as filter syntax rather than as data. Both values are already validated
+     * (zod email, E.164 phone) and cannot contain either character today —
+     * quoted anyway, because that validation living somewhere else is exactly
+     * the assumption that rots.
+     */
+    .or(`email.eq."${data.email}",phone.eq."${phone}"`)
+    .limit(1)
+    .maybeSingle();
+
+  if (dedupeError) {
+    console.warn("[diagnostic] duplicate check failed — allowing the insert", {
+      code: dedupeError.code,
+      message: dedupeError.message,
+    });
+  }
+  if (recentLead) {
+    console.info("[diagnostic] duplicate suppressed — no second lead, no second GHL push", {
+      existingLeadId: recentLead.id,
+      persona: persona.slug,
+    });
+    return { ok: true };
+  }
+
+  /**
    * THE TABLE IS WRITTEN FIRST AND IS THE SOURCE OF TRUTH.
    *
    * GoHighLevel is delivery, not storage. The lead is committed to Postgres
@@ -193,7 +284,6 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
    * change there cannot cost us the lead. Only a Postgres failure is reported
    * to the visitor as a failure.
    */
-  const admin = createAdminClient();
   const { data: inserted, error } = await admin
     .from("leads")
     .insert({
@@ -345,11 +435,45 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
 
 /**
  * ===========================================================================
- * ⚠ LAUNCH BLOCKER — RATE LIMITING. Same status as the inquiry action.
+ * RATE LIMITING — the launch blocker recorded here on 2026-07-30, closed for
+ * THIS ENDPOINT on 2026-08-06.
  *
- * This is the second unauthenticated endpoint writing with service-role, and
- * it writes PII: name, email, phone, ZIP, and a full answer set. Validation
- * stops malformed abuse; nothing here stops volume. Close it before the apex
- * domain or the first paying contractor — Vercel WAF rules first.
+ * ⚠ "CLOSED FOR THIS ENDPOINT" IS THE WHOLE CLAIM. The blocker covers six
+ * public write paths and is not closed until all six are wired and
+ * db/migrations/20260806_rate_limits.sql has been run. Do not read this note as
+ * the blocker being done.
+ *
+ * What it was: the second unauthenticated endpoint writing with service-role,
+ * and the one that writes the most PII — name, email, phone, ZIP and a full
+ * answer set — then spends a GHL contact, a GHL opportunity and a concierge
+ * callback on every row it accepts.
+ *
+ * WHAT NOW STANDS BETWEEN THE FORM AND THE INSERT, cheapest first:
+ *   0. The zod schema, the answer allowlists and the honeypot above — free,
+ *      and they stop malformed abuse without touching Postgres.
+ *   1. Two counters: 2 per 10 minutes and 3 per day, per IP. The tightest in
+ *      the application, because this is the most expensive thing an anonymous
+ *      stranger can make us do.
+ *   2. Duplicate suppression on email OR phone within 24 hours, which is what
+ *      catches a slow drip from a rotating IP pool that never trips a counter.
+ *
+ * WHAT IS DELIBERATELY STILL OPEN:
+ *
+ *   VOLUME COSTS ARE NOT HANDLED HERE AND CANNOT BE. Every request refused
+ *   above has already booted a Vercel function and been billed. Dropping
+ *   traffic before compute is the WAF's job — those rules are step 1 of this
+ *   defence, not an optional extra, and this file does not compensate if they
+ *   are removed.
+ *
+ *   THE COUNTERS ARE PER-IP ONLY. There is no per-persona or per-ZIP bucket, so
+ *   a distributed source submitting one lead per address is limited only by the
+ *   24-hour duplicate rule. If that is ever observed, the next control is
+ *   Turnstile on this form specifically — unlike the contractor profile, this
+ *   page already ships client JavaScript, so a challenge widget costs nothing
+ *   architecturally here. It is the obvious next step, not a last resort.
+ *
+ * THE LIMITER FAILS OPEN. If Postgres is unreachable this endpoint is unlimited
+ * again, loudly, in the logs — see the docblock in lib/rate-limit.ts. A limiter
+ * outage that ate leads would be worse than the abuse it prevents.
  * ===========================================================================
  */

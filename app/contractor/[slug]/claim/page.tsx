@@ -54,6 +54,7 @@ const ERROR_TEXT: Record<string, string> = {
   duplicate: "You already have a claim on this profile awaiting review.",
   claimed: "This profile has already been claimed.",
   spam: "That submission looked automated. Please try again.",
+  rate: "Too many attempts in a short time. Please wait a few minutes and try again.",
   failed: "Something went wrong on our side. Please try again.",
 };
 

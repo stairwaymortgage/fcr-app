@@ -2,6 +2,10 @@
 
 import { redirect } from "next/navigation";
 
+// Aliased: this file already has a LIMITS const for field lengths, and two
+// different things called LIMITS one screen apart is how the wrong one gets
+// edited.
+import { LIMITS as RATE, checkLimits, requestIp } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -75,6 +79,7 @@ type ErrorCode =
   | "message"
   | "phone"
   | "spam"
+  | "rate"
   | "failed";
 
 function fail(slug: string, codes: ErrorCode[]): never {
@@ -149,6 +154,29 @@ export async function submitInquiry(formData: FormData): Promise<void> {
   if (errors.length > 0) fail(slug, errors);
 
   /**
+   * RATE LIMIT — after validation, before any database work.
+   *
+   * ORDER MATTERS AND THIS IS THE CHEAPEST CORRECT POSITION. Validation above
+   * costs nothing (string work on data already in memory), so a malformed flood
+   * is rejected without touching Postgres at all. A well-formed flood — the one
+   * the limiter exists for — is stopped here, one round trip in, before the
+   * contractor lookup and before the privileged INSERT.
+   *
+   * THE PER-CONTRACTOR BUCKET USES THE SUBMITTED SYNC KEY, not the looked-up
+   * one, because the lookup has not happened yet and doing it first would give
+   * a flood a free query each. A caller who posts a junk sync key therefore
+   * consumes a junk bucket and is refused by the lookup a moment later either
+   * way; the key is length-capped above, and it is hashed before storage.
+   */
+  const ip = requestIp();
+  const limit = await checkLimits([
+    { spec: RATE.INQUIRY_IP_BURST, identifier: ip },
+    { spec: RATE.INQUIRY_CONTRACTOR, identifier: syncKey },
+    { spec: RATE.INQUIRY_IP_DAY, identifier: ip },
+  ]);
+  if (!limit.allowed) fail(slug, ["rate"]);
+
+  /**
    * The contractor must exist, and the slug in the URL must be the slug of the
    * contractor being written to.
    *
@@ -176,13 +204,56 @@ export async function submitInquiry(formData: FormData): Promise<void> {
   }
   if (!contractor) fail(slug, ["contractor"]);
 
+  const admin = createAdminClient();
+
+  /**
+   * DUPLICATE SUPPRESSION — the same sender, to the same contractor, inside 24
+   * hours writes one row, not two.
+   *
+   * This is a rate-limiting control, not a tidiness one, and it covers a case
+   * the counters above cannot: an actor who stays politely under every window
+   * but submits from a rotating IP pool all week. The thing that has to stay
+   * constant for the spam to reach its target is the target, and for it to look
+   * like a real lead it needs a plausible sender — so (sender, contractor) is
+   * the pair worth collapsing.
+   *
+   * IT ALSO FIXES A REAL-USER BUG that predates this work: a double-click, or
+   * the browser replaying the POST on a back-navigation, currently delivers the
+   * contractor two identical leads. They are billed for one of those.
+   *
+   * REPORTED AS SUCCESS, DELIBERATELY. The sender's message did arrive the
+   * first time, so "sent" is the truthful answer, and a "duplicate" error would
+   * tell a spammer exactly which of their identities has already landed.
+   *
+   * A failed check falls through to the insert rather than blocking. The worst
+   * case is the duplicate row we have always had — never a lost lead.
+   */
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: recent, error: dupeError } = await admin
+    .from("inquiries")
+    .select("id")
+    .eq("contractor_dbpr_sync_key", contractor.dbpr_sync_key)
+    .eq("from_email", email)
+    .gte("created_at", since)
+    .limit(1)
+    .maybeSingle();
+
+  if (dupeError) {
+    console.warn("[inquiry] duplicate check failed — allowing the insert", {
+      code: dupeError.code,
+      message: dupeError.message,
+    });
+  }
+  if (recent) {
+    redirect(`/contractor/${slug}?inquiry=sent`);
+  }
+
   /**
    * The one privileged statement in the public app.
    *
    * Four columns, named literally. status / replied_at / created_at keep their
    * schema defaults ('unread', NULL, now()) — they are not accepted as input.
    */
-  const admin = createAdminClient();
   const { error: insertError } = await admin.from("inquiries").insert({
     contractor_dbpr_sync_key: contractor.dbpr_sync_key,
     from_name: name,
@@ -207,33 +278,45 @@ export async function submitInquiry(formData: FormData): Promise<void> {
 
 /**
  * ===========================================================================
- * ⚠ LAUNCH BLOCKER — RATE LIMITING. NOT BACKLOG.
+ * RATE LIMITING — the launch blocker recorded here on 2026-07-30, closed for
+ * THIS ENDPOINT on 2026-08-06.
  *
- * Reclassified from follow-up to launch-blocker on 2026-07-30. This must close
- * before EITHER of these, whichever comes first:
+ * ⚠ "CLOSED FOR THIS ENDPOINT" IS THE WHOLE CLAIM. The blocker covers six
+ * public write paths and is not closed until all six are wired and
+ * db/migrations/20260806_rate_limits.sql has been run. Do not read this note as
+ * the blocker being done.
  *
- *   - the public apex domain goes live, or
- *   - the first paying (Featured, $29/mo) contractor is onboarded.
+ * What it was: this is an unauthenticated endpoint that writes with
+ * service-role, and every junk row it accepts is delivered to a contractor as a
+ * LEAD. Once the Featured tier exists those contractors are paying for leads, so
+ * unthrottled spam is not spam in a table — it is spam inside the monetized
+ * product, billed to the victim. A refund-and-churn problem, not a cleanup one.
  *
- * WHY IT OUTRANKS ordinary spam handling: this is an unauthenticated endpoint
- * that writes with service-role, and every junk row it accepts is delivered to
- * a contractor as a LEAD. Once the Featured tier exists, those contractors are
- * paying for leads — so unthrottled spam is not spam in a table, it is spam
- * inside the monetized product, billed to the victim. That is a refund-and-churn
- * problem, not a cleanup problem.
+ * WHAT NOW STANDS BETWEEN THE FORM AND THE INSERT, cheapest first:
+ *   0. Validation and the honeypot above — free, stops malformed abuse.
+ *   1. Three counters in lib/rate-limit.ts: per-IP burst, per-CONTRACTOR, per-IP
+ *      daily. The per-contractor one is the one that survives IP rotation and
+ *      the one that protects the paying customer's inbox.
+ *   2. Duplicate suppression on (sender, contractor) within 24h.
  *
- * The validation above stops MALFORMED abuse. Nothing here stops VOLUME abuse:
- * a script can POST well-formed inquiries as fast as the endpoint answers. The
- * honeypot catches naive bots only.
+ * WHAT IS DELIBERATELY STILL OPEN:
  *
- * ORDER OF WORK:
- *   1. Vercel WAF / bot rules — no code, the project is already on Vercel.
- *   2. @upstash/ratelimit keyed on the forwarded IP — a few lines, needs a KV
- *      store. Do this if the WAF proves too coarse.
- *   3. Turnstile / reCAPTCHA — strongest, but adds a client script and so gives
- *      up the zero-client-JS property this page currently has. Last resort.
+ *   VOLUME COSTS ARE NOT HANDLED HERE AND CANNOT BE. Every request rejected
+ *   above has already booted a Vercel function and been billed. Dropping
+ *   traffic before compute is the WAF's job — the rules live in the Vercel
+ *   dashboard, and they are step 1 of this defence, not an optional extra. If
+ *   they are ever removed, this file does not compensate.
  *
- * Shipping to the preview deployment without it is fine: no crawlers, no paying
- * contractors, and malformed abuse is already blocked.
+ *   TURNSTILE IS STILL DEFERRED, and the reason is specific to THIS page rather
+ *   than general reluctance: the profile page ships zero client JavaScript, and
+ *   a challenge widget gives that up for every visitor in order to inconvenience
+ *   a spammer who is already limited to 3 per 10 minutes. Revisit only if the
+ *   counters are observed tripping constantly, which would mean a distributed
+ *   source the IP buckets cannot see.
+ *
+ * THE LIMITER FAILS OPEN. If Postgres is unreachable this endpoint is unlimited
+ * again, loudly, in the logs. That is the intended trade — see the docblock in
+ * lib/rate-limit.ts — because a limiter outage that ate leads would be worse
+ * than the abuse it prevents.
  * ===========================================================================
  */

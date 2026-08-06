@@ -13,6 +13,7 @@ import {
   ID_PHOTO_MAX_BYTES,
   ID_PHOTO_MIME_TYPES,
 } from "@/lib/claims";
+import { LIMITS as RATE, checkLimit, checkLimits } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -141,6 +142,36 @@ export async function createIdPhotoUploadTarget(input: {
     return { ok: false, error: "That photo is larger than 10MB. Try again with a smaller image." };
   }
 
+  /**
+   * RATE LIMIT — keyed on the USER, and carrying more weight than "requires a
+   * session" suggests. A session costs one email and two requests, so
+   * authentication is a speed bump here rather than a control.
+   *
+   * ⚠ WHAT IT STOPS IS SPECIFIC TO THIS FUNCTION'S DESIGN. Every call mints a
+   * FRESH claim id and therefore a FRESH storage path — deliberately, because
+   * the bucket grants INSERT but not UPDATE and a reused path could never be
+   * written twice. Both guards below ("already claimed", "you have a pending
+   * claim") stay satisfied indefinitely until a claim ROW is actually written.
+   * So without this limit one account can mint unlimited signed upload URLs and
+   * push 10MB per object into a private bucket across 266,305 unclaimed
+   * contractors — and nothing would ever remove them, because the 90-day purge
+   * scans the claims table and an orphaned object has no claim row to find.
+   *
+   * PLACED BEFORE loadContext() so a flood does not get two free queries per
+   * attempt, and well before the signed URL is minted.
+   */
+  const uploadVerdict = await checkLimits([
+    { spec: RATE.CLAIM_UPLOAD_USER, identifier: user.id },
+    { spec: RATE.CLAIM_UPLOAD_USER_DAY, identifier: user.id },
+  ]);
+  if (!uploadVerdict.allowed) {
+    console.warn("[claim] upload target refused — limit reached", { userId: user.id });
+    return {
+      ok: false,
+      error: "Too many upload attempts. Wait a few minutes before trying again.",
+    };
+  }
+
   const { contractor, mine } = await loadContext(slug, syncKey, user.id);
   if (!contractor) return { ok: false, error: "That profile could not be found." };
   if (contractor.claimed_by_user_id) {
@@ -189,6 +220,7 @@ type ErrorCode =
   | "duplicate"
   | "claimed"
   | "spam"
+  | "rate"
   | "failed";
 
 function fail(slug: string, codes: ErrorCode[]): never {
@@ -265,6 +297,22 @@ export async function submitClaim(formData: FormData): Promise<void> {
   if (!acceptedTerms) errors.push("terms");
 
   if (errors.length > 0) fail(slug, errors);
+
+  /**
+   * RATE LIMIT — the lightest one here, and the reason is that this endpoint is
+   * already well defended: it needs a session, it needs a real uploaded photo in
+   * the caller's own folder, and the partial unique index makes a duplicate
+   * claim a 23505 rather than a second row.
+   *
+   * It exists so that this is not the one write path in the application with no
+   * ceiling at all. What it actually bounds is the storage LIST and the INSERT
+   * attempt below — cheap individually, unbounded without it.
+   */
+  const submitVerdict = await checkLimit(RATE.CLAIM_SUBMIT_USER, user.id);
+  if (!submitVerdict.allowed) {
+    console.warn("[claim] submission refused — limit reached", { userId: user.id });
+    fail(slug, ["rate"]);
+  }
 
   const { contractor, mine } = await loadContext(slug, syncKey, user.id);
   if (!contractor) fail(slug, ["contractor"]);

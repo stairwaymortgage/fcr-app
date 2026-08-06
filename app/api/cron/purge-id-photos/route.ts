@@ -77,9 +77,50 @@ export async function GET(request: NextRequest) {
   }
 
   const started = Date.now();
-  const result = await purgeExpiredIdPhotos(createAdminClient(), {
+  const admin = createAdminClient();
+  const result = await purgeExpiredIdPhotos(admin, {
     bucket: ID_PHOTO_BUCKET,
   });
+
+  /**
+   * RATE-LIMIT COUNTER RETENTION — a second, unrelated sweep riding this
+   * schedule.
+   *
+   * ⚠ IT LIVES HERE RATHER THAN IN ITS OWN CRON ENTRY ON PURPOSE. A second
+   * scheduled route would be a second thing that can silently stop running, and
+   * this DELETE is one statement against a table nobody watches. Bolted to a job
+   * that already holds the service-role key, already runs daily, and already
+   * logs on every run, it inherits all of that supervision for free.
+   *
+   * The longest window any bucket uses is 24 hours, so a row whose window began
+   * more than 48 hours ago cannot affect any verdict. 48 rather than 24 so that
+   * a purge which fails to run for a day changes nothing about behaviour.
+   *
+   * ⚠ IT MUST NOT BE ABLE TO FAIL THE ID-PHOTO PURGE. That is the sweep with a
+   * privacy promise behind it and a date already in writing; this one only
+   * reclaims space. So it runs after, its error is logged rather than thrown,
+   * and the route still returns 200 — the counters growing for another day is a
+   * non-event, ID photos outliving their deletion date is not.
+   */
+  let rateLimitRowsPurged: number | null = null;
+  const { error: rateLimitPurgeError, count } = await admin
+    .from("rate_limits")
+    .delete({ count: "exact" })
+    .lt("window_start", new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString());
+
+  if (rateLimitPurgeError) {
+    console.error("[cron] rate_limits purge failed — counters will keep growing", {
+      code: rateLimitPurgeError.code,
+      message: rateLimitPurgeError.message,
+      hint:
+        rateLimitPurgeError.code === "42P01"
+          ? "db/migrations/20260806_rate_limits.sql has not been run."
+          : undefined,
+    });
+  } else {
+    rateLimitRowsPurged = count ?? 0;
+  }
+
   const ms = Date.now() - started;
 
   /**
@@ -88,10 +129,10 @@ export async function GET(request: NextRequest) {
    * silently stopped running, and the failure mode here is invisible: nothing
    * breaks, photographs simply keep existing past the date we promised.
    */
-  console.log("[cron] purge-id-photos", { ...result, ms });
+  console.log("[cron] purge-id-photos", { ...result, rateLimitRowsPurged, ms });
 
   // 200 even with failures inside the batch: the run itself completed, and a
   // non-2xx would make Vercel report the schedule as broken when it is working
   // and simply hit a bad chunk. The counts and errors carry the detail.
-  return NextResponse.json({ ok: true, ...result, ms });
+  return NextResponse.json({ ok: true, ...result, rateLimitRowsPurged, ms });
 }
