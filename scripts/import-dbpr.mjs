@@ -43,7 +43,80 @@ import { parse } from "csv-parse/sync";
 import { createClient } from "@supabase/supabase-js";
 
 const CSV_PATH = "_handoff/07_source_data/CONSTRUCTIONLICENSE_1.csv";
-const BATCH_SIZE = 1000;
+
+/**
+ * ⚠ 500, REDUCED FROM 1000 ON 2026-08-06 AFTER A STATEMENT TIMEOUT AT BATCH
+ * 54000 ON A FULL RUN.
+ *
+ * A 1000-row upsert is a single statement holding 1000 row locks and rewriting
+ * every index entry for each of them; against the pooled connection Supabase
+ * gives this script it was crossing the statement timeout partway through a
+ * long run — not on any particular row, but as cumulative index bloat and
+ * autovacuum lag made each batch dearer than the last. Halving the batch halves
+ * the work inside one statement, which is the unit the timeout applies to.
+ *
+ * IF 500 STILL TIMES OUT, THIS IS THE KNOB — lower it before reaching for
+ * anything cleverer. Doubling the batch count costs round trips, which are
+ * cheap; exceeding the statement timeout costs the whole run.
+ */
+const BATCH_SIZE = 500;
+
+/**
+ * The touch phase batches SMALLER, and not for the same reason.
+ *
+ * A PATCH filters in the QUERY STRING — `?dbpr_sync_key=in.(k1,k2,…)` — so the
+ * batch size here is bounded by URL length, not by statement cost. 500 keys of
+ * ~25 characters is a 12KB URL, past what proxies and PostgREST will accept; at
+ * 200 it is under 5KB with room to spare. This is a transport limit and has
+ * nothing to do with the timeout above.
+ */
+const TOUCH_BATCH_SIZE = 200;
+
+/**
+ * Retry with exponential backoff — for TRANSIENT failures only.
+ *
+ * ⚠ THE ALLOWLIST IS THE POINT. Retrying a deterministic error is not
+ * resilience, it is three identical failures and a longer wait before the same
+ * message: a duplicate key (23505) will conflict every time, a missing column
+ * (42703) will be missing every time. Only faults that can plausibly succeed on
+ * a second attempt are retried — the statement timeout this batch size exists
+ * to avoid, connection drops, and serialization failures.
+ *
+ * A network-level throw arrives with no `code` at all (fetch failed, socket
+ * hang up), and those are retried too.
+ */
+const RETRYABLE = new Set([
+  "57014", // statement timeout — the failure at batch 54000
+  "40001", // serialization failure
+  "40P01", // deadlock detected
+  "53300", // too many connections
+  "08000", "08003", "08006", // connection exception / does not exist / failure
+  "XX000", // internal error; sometimes wraps a pooler reset
+]);
+
+async function withRetry(label, attempt) {
+  const MAX_ATTEMPTS = 4;
+  for (let n = 1; ; n++) {
+    const error = await attempt();
+    if (!error) return;
+
+    const retryable = !error.code || RETRYABLE.has(error.code);
+    if (!retryable || n === MAX_ATTEMPTS) {
+      throw new Error(
+        `${label} failed${error.code ? ` [${error.code}]` : ""} after ${n} attempt(s): ${error.message}`,
+      );
+    }
+
+    // 1s, 2s, 4s. Long enough for a pooler to recover, short enough that a run
+    // that is going to fail does not take an extra ten minutes to say so.
+    const waitMs = 1000 * 2 ** (n - 1);
+    console.log(
+      `  ⚠ ${label}: ${error.code ?? "network"} — ${error.message}\n` +
+      `    retrying in ${waitMs / 1000}s (attempt ${n + 1}/${MAX_ATTEMPTS})`,
+    );
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
 
 /**
  * Rows per page when reading existing keys back for the change census, and how
@@ -601,6 +674,14 @@ try {
    */
   let census = null;
   let orphaned = null;
+  /**
+   * The three work lists. Null (not empty) when there is no census to build
+   * them from — --no-diff or a partial run — which the load below reads as
+   * "you cannot know what changed, so write everything".
+   */
+  let toInsert = null;
+  let toUpdate = null;
+  let toTouch = null;
   if (!isPartial && !flag("--no-diff")) {
     console.log("reading existing keys for the change census…");
     const existing = await loadFingerprints(db, (done, total) => {
@@ -609,13 +690,29 @@ try {
       }
     });
 
-    census = { inserted: 0, updated: 0, unchanged: 0 };
+    /**
+     * The census now produces the WORK LISTS, not just the counts.
+     *
+     * Same classification as before and the same three numbers come out of it —
+     * but the records are kept, partitioned, so the load below can write only
+     * what actually changed and merely re-stamp the rest. On a typical weekly
+     * extract the unchanged pile is the overwhelming majority, and it is the
+     * one that used to be rewritten in full for no reason.
+     */
+    toInsert = [];
+    toUpdate = [];
+    toTouch = [];
     for (const rec of toLoad) {
       const before = existing.get(rec.dbpr_sync_key);
-      if (before === undefined) census.inserted++;
-      else if (before === fingerprint(rec)) census.unchanged++;
-      else census.updated++;
+      if (before === undefined) toInsert.push(rec);
+      else if (before === fingerprint(rec)) toTouch.push(rec.dbpr_sync_key);
+      else toUpdate.push(rec);
     }
+    census = {
+      inserted: toInsert.length,
+      updated: toUpdate.length,
+      unchanged: toTouch.length,
+    };
 
     /**
      * Orphans: in the table, absent from this extract. COUNTED, NEVER DELETED —
@@ -639,25 +736,137 @@ try {
     console.log("--no-diff: skipping the change census, counts will be recorded as NULL\n");
   }
 
-  console.log(`upserting ${toLoad.length.toLocaleString("en-US")} rows in batches of ${BATCH_SIZE}`);
-  let done = 0;
-  for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
-    const batch = toLoad.slice(i, i + BATCH_SIZE);
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * THE LOAD, IN PHASES: insert → update → touch-unchanged → complete.
+   *
+   * ⚠ EVERY ROW IN THE EXTRACT STILL ENDS THE RUN WITH last_dbpr_sync_at MOVED
+   * FORWARD, INCLUDING THE UNCHANGED ONES. That invariant has not been relaxed;
+   * only the way it is achieved has. Orphan detection is defined as a stamp
+   * older than the newest successful run, so a row in the extract that finished
+   * a successful run unstamped would be reported as an abandoned licence. What
+   * changed is that unchanged rows get a one-column UPDATE instead of a full
+   * rewrite of sixteen columns they already hold.
+   *
+   * WHY TOUCH-UNCHANGED RUNS LAST, AND WHY THAT ORDERING IS SAFE RATHER THAN
+   * MERELY TIDY:
+   *
+   * The failure being designed against is a run that dies halfway. Stamp first
+   * and die during the writes, and rows are stamped as of this run while still
+   * holding last week's values — the timestamp claims a freshness the data does
+   * not have, and nothing afterwards can tell. Stamp last and die, and some
+   * rows are correct-but-unstamped, which is the recoverable direction.
+   *
+   * IT IS SAFE BECAUSE A FAILED RUN NEVER BECOMES THE BASELINE. lib/sync-runs.ts
+   * defines an orphan against the newest SUCCESSFUL run. A crash here closes
+   * sync_runs as 'failed' (see the catch block), so the baseline stays where the
+   * last good run left it — and against THAT baseline every row is still stamped,
+   * because that run stamped them all. The half-finished state is invisible to
+   * the census rather than a lie inside it.
+   *
+   * AND THE RE-RUN RECONCILES. The census is recomputed from live fingerprints
+   * every time, so rows written before the crash come back classified
+   * 'unchanged' and land in the touch phase. Nothing needs to remember where the
+   * previous attempt stopped. Re-running is always correct and never doubles
+   * anything.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+
+  /**
+   * ONE TIMESTAMP FOR THE WHOLE RUN, not new Date() per batch.
+   *
+   * The old code stamped each batch at the moment it was written, which spread
+   * a long run's stamps across however many minutes it took. Orphan detection
+   * compares against a run boundary, so a single value makes "stamped by this
+   * run" an exact equality rather than a range that has to be reasoned about.
+   */
+  const runStamp = new Date().toISOString();
+
+  /** Upsert one list in batches, with backoff. Used by both write phases. */
+  async function loadPhase(label, records) {
+    if (records.length === 0) {
+      console.log(`${label}: nothing to do`);
+      return;
+    }
+    console.log(
+      `${label}: ${records.length.toLocaleString("en-US")} rows in batches of ${BATCH_SIZE}`,
+    );
+    let done = 0;
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+      const batch = records.slice(i, i + BATCH_SIZE);
+      await withRetry(`${label} batch at offset ${i}`, async () => {
+        const { error } = await db
+          .from("contractors")
+          .upsert(
+            batch.map((r) => ({ ...r, last_dbpr_sync_at: runStamp })),
+            { onConflict: "dbpr_sync_key", ignoreDuplicates: false },
+          );
+        return error;
+      });
+      done += batch.length;
+      if ((i / BATCH_SIZE) % 20 === 0 || done === records.length) {
+        console.log(`  ${done.toLocaleString("en-US")}/${records.length.toLocaleString("en-US")}`);
+      }
+    }
+  }
+
+  if (toInsert === null) {
     /**
-     * ⚠ EVERY ROW IN THE EXTRACT GETS last_dbpr_sync_at BUMPED, INCLUDING THE
-     * ONES THE CENSUS CALLED 'unchanged'. Do not "optimise" that away. Orphan
-     * detection is defined as a stamp older than the newest successful run, so
-     * skipping the write on unchanged rows would report the entire quiet
-     * majority of the registry as abandoned.
+     * No census — --no-diff, or a partial run. Without one there is no way to
+     * know which rows changed, so every row is written exactly as before. This
+     * path is the pre-2026-08-06 behaviour, kept intact rather than approximated.
      */
-    const { error } = await db
-      .from("contractors")
-      .upsert(batch.map((r) => ({ ...r, last_dbpr_sync_at: new Date().toISOString() })),
-              { onConflict: "dbpr_sync_key", ignoreDuplicates: false });
-    if (error) throw new Error(`batch at offset ${i} failed: ${error.message}`);
-    done += batch.length;
-    if ((i / BATCH_SIZE) % 10 === 0 || done === toLoad.length) {
-      console.log(`  ${done.toLocaleString("en-US")}/${toLoad.length.toLocaleString("en-US")}`);
+    console.log(
+      `no census available: upserting all ${toLoad.length.toLocaleString("en-US")} rows`,
+    );
+    await loadPhase("PHASE all", toLoad);
+  } else {
+    await loadPhase("PHASE 1 insert", toInsert);
+    await loadPhase("PHASE 2 update", toUpdate);
+
+    // ---- PHASE 3 — touch-unchanged ----
+    //
+    // One column, by key. This is the phase the whole restructure exists for:
+    // on a quiet week it is the great majority of the table, and rewriting all
+    // sixteen columns of it was most of what the run was spending its statement
+    // timeout on.
+    if (toTouch.length === 0) {
+      console.log("PHASE 3 touch-unchanged: nothing to do");
+    } else {
+      console.log(
+        `PHASE 3 touch-unchanged: ${toTouch.length.toLocaleString("en-US")} rows ` +
+        `in batches of ${TOUCH_BATCH_SIZE}`,
+      );
+      let touched = 0;
+      for (let i = 0; i < toTouch.length; i += TOUCH_BATCH_SIZE) {
+        const keys = toTouch.slice(i, i + TOUCH_BATCH_SIZE);
+        await withRetry(`touch batch at offset ${i}`, async () => {
+          const { error } = await db
+            .from("contractors")
+            .update({ last_dbpr_sync_at: runStamp })
+            .in("dbpr_sync_key", keys);
+          return error;
+        });
+        touched += keys.length;
+        if ((i / TOUCH_BATCH_SIZE) % 50 === 0 || touched === toTouch.length) {
+          console.log(`  ${touched.toLocaleString("en-US")}/${toTouch.length.toLocaleString("en-US")}`);
+        }
+      }
+    }
+
+    /**
+     * THE PHASES MUST ACCOUNT FOR EVERY ROW IN THE EXTRACT.
+     *
+     * A row that fell through all three would finish a SUCCESSFUL run unstamped
+     * and be counted as an orphan next week — a silent, plausible-looking
+     * miscount rather than a crash. Cheap to assert, so it is asserted rather
+     * than reasoned about.
+     */
+    const accounted = toInsert.length + toUpdate.length + toTouch.length;
+    if (accounted !== toLoad.length) {
+      throw new Error(
+        `phase accounting mismatch: ${accounted} across phases vs ${toLoad.length} in the extract`,
+      );
     }
   }
 
