@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Spinner } from "@/components/SubmitButton";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { safeNext } from "@/lib/safe-next";
 
-import { sendLoginCode, verifyLoginCode } from "../actions";
+import { resolveLoginLanding, sendLoginCode, verifyLoginCode } from "../actions";
 
 /**
  * Code entry.
@@ -59,12 +60,24 @@ export default function CodeForm({ email, next }: { email: string; next?: string
      * makes the server re-render with them before navigating, so the
      * destination does not render its signed-out state for a frame.
      *
-     * safeNext is applied HERE TOO. It already guards the callback route, but
-     * `next` reaches this component through the query string, so it is
-     * attacker-supplied on this path as well and gets the same treatment.
+     * THE DESTINATION IS RESOLVED ON THE SERVER, not here. resolveLoginLanding
+     * still validates `next` — it is attacker-supplied on this path too, via the
+     * query string — and when there is no usable one it picks by role: admins to
+     * /admin/claims, a contractor to the profile they manage. Neither of those
+     * questions can be answered in the browser.
+     *
+     * safeNext() is kept as the fallback for the failure case below, so a
+     * server-side hiccup can never turn into an unvalidated navigation.
      */
     router.refresh();
-    router.push(safeNext(next));
+
+    let destination: string;
+    try {
+      destination = await resolveLoginLanding(next);
+    } catch {
+      destination = safeNext(next);
+    }
+    router.push(destination);
   }
 
   async function onResend() {
@@ -107,8 +120,10 @@ export default function CodeForm({ email, next }: { email: string; next?: string
         <button
           type="submit"
           disabled={pending}
-          className={`bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
+          aria-busy={pending || undefined}
+          className={`inline-flex items-center justify-center gap-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
         >
+          {pending && <Spinner />}
           {pending ? "Checking…" : "Sign in →"}
         </button>
       </form>

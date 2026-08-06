@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
+import SubmitButton, { Spinner } from "@/components/SubmitButton";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import {
   LOGO_ACCEPT,
@@ -211,10 +212,12 @@ export default function LogoUploader({
               keyboard-only contractor with no way to reach it.
             */}
             <label
-              className={`inline-block cursor-pointer border border-gray-300 bg-white px-4 py-2.5 font-mono text-label uppercase tracking-label text-gray-700 transition-colors hover:border-navy hover:text-navy focus-within:border-navy ${
+              aria-busy={busy || undefined}
+              className={`inline-flex cursor-pointer items-center gap-2 border border-gray-300 bg-white px-4 py-2.5 font-mono text-label uppercase tracking-label text-gray-700 transition-colors hover:border-navy hover:text-navy focus-within:border-navy ${
                 busy ? "pointer-events-none opacity-60" : ""
               }`}
             >
+              {busy && <Spinner />}
               {busy ? "Uploading…" : currentUrl ? "Replace file" : "Upload file"}
               <input
                 ref={inputRef}
@@ -232,13 +235,18 @@ export default function LogoUploader({
                  server-side; nothing here is trusted. */
               <form action={clearLogo}>
                 <input type="hidden" name="dbpr_sync_key" value={dbprSyncKey} />
-                <button
-                  type="submit"
+                {/* SubmitButton rather than the local `busy` flag: `busy`
+                    belongs to the UPLOAD path and is never set by this form,
+                    so a removal in flight had no feedback at all. useFormStatus
+                    reads this form's own state. `busy` is still passed through
+                    so an upload in progress disables removal. */}
+                <SubmitButton
+                  pendingLabel="Removing…"
                   disabled={busy}
                   className={`border border-gray-300 bg-white px-4 py-2.5 font-mono text-label uppercase tracking-label text-gray-700 transition-colors hover:border-status-error hover:text-status-error disabled:opacity-60 ${FOCUS_RING_PAPER}`}
                 >
                   Remove
-                </button>
+                </SubmitButton>
               </form>
             )}
           </div>

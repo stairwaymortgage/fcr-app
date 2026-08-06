@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import AdminHeader from "@/components/AdminHeader";
+import SubmitButton from "@/components/SubmitButton";
 import StatsStrip from "@/components/StatsStrip";
 import StatusBanner from "@/components/StatusBanner";
 import { requireAdmin } from "@/lib/auth";
@@ -239,6 +240,7 @@ export default async function AdminSyncPage({
       <AdminHeader
         currentPath="/admin/sync"
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         pendingClaims={headerCounts.pendingClaims}
         pendingLeads={headerCounts.newLeads}
@@ -259,14 +261,7 @@ export default async function AdminSyncPage({
                 · {totalRuns === 0 ? "no refreshes recorded" : `${totalRuns} recorded ${totalRuns === 1 ? "run" : "runs"}`}
               </p>
             </div>
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
-              >
-                Sign out
-              </button>
-            </form>
+            {/* Sign-out moved to AdminHeader on 2026-08-06. */}
           </div>
 
           {/* ── STATUS BANNER ─────────────────────────────────────────── */}
@@ -926,16 +921,19 @@ function TriggerSection({ active }: { active: SyncRun | null }) {
           </p>
         </div>
 
-        {/* A plain form POST to a Server Action. No client JS on this page, and
-            no confirm dialog — queueing is reversible by ignoring it, and the
-            guard already prevents a second one. */}
+        {/* A form POST to a Server Action, no confirm dialog — queueing is
+            reversible by ignoring it, and the guard already prevents a second
+            one. The submit button is the page's only client component, so the
+            reviewer gets a pending state instead of wondering whether the
+            click registered on an action whose whole point is that nothing
+            visible happens locally. */}
         <form action={queueRefresh}>
-          <button
-            type="submit"
+          <SubmitButton
+            pendingLabel="Queueing…"
             className={`whitespace-nowrap bg-navy px-5 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
           >
             Trigger refresh
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </section>

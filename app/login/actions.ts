@@ -3,6 +3,8 @@
 import { headers } from "next/headers";
 import { z } from "zod";
 
+import { getUser } from "@/lib/auth";
+import { resolveLanding } from "@/lib/landing";
 import { LIMITS as RATE, checkLimit, requestIp } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
@@ -173,6 +175,34 @@ export async function sendLoginCode(input: unknown): Promise<LoginResult> {
   }
 
   return { ok: true };
+}
+
+/**
+ * Where to send someone once their code has been accepted.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A SERVER ACTION BECAUSE THE ANSWER NEEDS THE DATABASE AND THE SESSION.
+ *
+ * CodeForm is a client component: it cannot read app_metadata off a verified
+ * user, and it cannot query which profile a contractor manages. It could be
+ * handed the answer as a prop — but the prop would have to be computed on the
+ * /login/sent page, which renders BEFORE the code is verified and therefore
+ * before a session exists. It would be computed for a signed-out visitor and
+ * would always say "/".
+ *
+ * ⚠ IT TAKES NO USER ID AND ACCEPTS NONE. The identity comes from getUser(),
+ * which verifies the JWT against the auth server — see lib/auth.ts on why never
+ * getSession(). A caller-supplied id would let anyone ask "where would THIS
+ * user land", which answers whether an address is an admin and which profile a
+ * contractor owns. The only input is the path they were already going to.
+ *
+ * Safe to call unauthenticated: resolveLanding(null) is "/", so an unverified
+ * caller learns nothing and gets the same answer as a signed-out visitor.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export async function resolveLoginLanding(next?: string): Promise<string> {
+  const user = await getUser();
+  return resolveLanding(next ?? null, user);
 }
 
 /**

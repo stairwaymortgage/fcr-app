@@ -37,6 +37,20 @@ export interface AdminHeaderProps {
   userName: string;
 
   /**
+   * The signed-in address, shown under the name.
+   *
+   * ⚠ THE NAME ALONE WAS NOT AN IDENTITY. displayName falls back to the local
+   * part of the email and then to the literal string "Admin", so a reviewer
+   * signed in as the wrong account could read "Admin" in the corner and have no
+   * way to tell. On a console that approves business ownership, "which account
+   * am I?" must be answerable without signing out to find out.
+   *
+   * Optional so the five call sites could adopt it without a flag day; when
+   * absent only the name renders.
+   */
+  userEmail?: string;
+
+  /**
    * Avatar initials, e.g. "JB". Uppercased at render.
    * Passed explicitly rather than derived from userName — derivation breaks on
    * single-word names, hyphenates, and suffixes. The session has this value.
@@ -170,6 +184,7 @@ function Logo() {
 export default function AdminHeader({
   currentPath,
   userName,
+  userEmail,
   userInitials,
   pendingClaims,
   pendingLeads,
@@ -203,10 +218,22 @@ export default function AdminHeader({
           })}
         </nav>
 
-        {/* Static for v1. The mockup docs mention a sign-out dropdown, but no
-            mockup defines its trigger, contents, or open state — building it
-            now would mean inventing design. When there is a mockup and a real
-            auth flow, this becomes a "use client" <UserMenu>. */}
+        {/*
+          IDENTITY AND SIGN-OUT LIVE HERE NOW, ON 2026-08-06.
+
+          Previously this chip was display-only and every one of the five admin
+          pages rendered its OWN sign-out form in its own title bar — five
+          copies of the same control, in five slightly different places,
+          discovered by grepping rather than by design. Worse in the contractor
+          portal, where only /manage/[slug]/settings had one at all: a
+          contractor on their profile editor or inquiries inbox could not sign
+          out without first navigating somewhere else.
+
+          The old note here said a dropdown was deferred because no mockup
+          defined its trigger or open state. That still holds and this is not
+          that dropdown — it is the two things a shell must always show, placed
+          inline. No client JS, no invented interaction design.
+        */}
         <div className="flex shrink-0 items-center gap-2.5 text-ui text-white/75">
           <span
             aria-hidden="true"
@@ -214,7 +241,31 @@ export default function AdminHeader({
           >
             {userInitials.toUpperCase()}
           </span>
-          <span>{userName}</span>
+
+          <span className="flex flex-col leading-tight">
+            <span>{userName}</span>
+            {userEmail && (
+              <span className="font-mono text-chip text-white/50">{userEmail}</span>
+            )}
+          </span>
+
+          {/*
+            POST, never a link or a GET. Recorded in app/auth/signout/route.ts
+            and repeated at each old call site: a GET sign-out can be fired by
+            any <img> on any site, logging a reviewer out mid-decision.
+
+            Not a SubmitButton — this is a native form POST with no function
+            action, so useFormStatus would report pending forever. The browser's
+            own navigation indicator covers it.
+          */}
+          <form action="/auth/signout" method="post" className="ml-1.5">
+            <button
+              type="submit"
+              className={`border border-white/25 px-2.5 py-1 font-mono text-chip uppercase tracking-label text-white/70 transition-colors hover:border-gold hover:text-gold ${FOCUS_RING_NAVY}`}
+            >
+              Sign out
+            </button>
+          </form>
         </div>
       </div>
     </header>

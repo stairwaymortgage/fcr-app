@@ -266,6 +266,7 @@ export default async function InquiriesPage({
         currentPath="/inquiries"
         contractorSlug={primary.slug}
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         unreadInquiries={newCount.count ?? 0}
       />

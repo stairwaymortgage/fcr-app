@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { SMS_CONSENT_TEXT } from "@/lib/consent";
+import { Spinner } from "@/components/SubmitButton";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import {
   CAPTURE_FIELDS,
@@ -440,8 +441,10 @@ export default function DiagnosticWizard({
           <button
             type="submit"
             disabled={pending}
-            className={`mt-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
+            aria-busy={pending || undefined}
+            className={`mt-2 inline-flex items-center justify-center gap-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
           >
+            {pending && <Spinner />}
             {pending ? "Sending…" : "Request the conversation"}
           </button>
 

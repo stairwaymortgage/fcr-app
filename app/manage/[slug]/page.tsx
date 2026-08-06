@@ -118,6 +118,7 @@ export default async function ManageProfilePage({
         currentPath={`/manage/${params.slug}`}
         contractorSlug={params.slug}
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         unreadInquiries={unread ?? 0}
       />

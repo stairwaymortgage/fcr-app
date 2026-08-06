@@ -93,6 +93,7 @@ export default async function AdminSettingsPage() {
       <AdminHeader
         currentPath="/admin/settings"
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         pendingClaims={counts.pendingClaims}
         pendingLeads={counts.newLeads}
@@ -110,14 +111,7 @@ export default async function AdminSettingsPage() {
                 is configured, scheduled and stored.
               </p>
             </div>
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
-              >
-                Sign out
-              </button>
-            </form>
+            {/* Sign-out moved to AdminHeader on 2026-08-06. */}
           </div>
 
           {missingRequired.length > 0 && (

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { safeNext } from "@/lib/safe-next";
+import { resolveLanding } from "@/lib/landing";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -58,7 +58,19 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = safeNext(searchParams.get("next"));
+
+  /**
+   * ⚠ THE RAW VALUE, RESOLVED AFTER THE SESSION EXISTS — not safeNext() here.
+   *
+   * Two changes on 2026-08-06, and they are connected. resolveLanding() still
+   * validates the path (it calls safeNext internally), but when no usable
+   * `next` was supplied it picks a destination from the signed-in user's ROLE
+   * instead of defaulting everyone to "/". That lookup needs the session, which
+   * does not exist until the exchange below succeeds — so the value is computed
+   * at each redirect site rather than once up here, where it would have been
+   * resolved against a signed-out user and always returned "/".
+   */
+  const rawNext = searchParams.get("next");
 
   /**
    * Supabase reports a refused or expired link as ?error=…, not by omitting
@@ -114,6 +126,9 @@ export async function GET(request: NextRequest) {
       console.warn("[auth] verifyOtp failed", { status: error.status, message: error.message });
       return NextResponse.redirect(`${origin}/auth/error?reason=used`);
     }
+
+    const { data: verified } = await supabase.auth.getUser();
+    const next = await resolveLanding(rawNext, verified.user);
     return NextResponse.redirect(`${origin}${next}`);
   }
 
@@ -130,5 +145,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/auth/error?reason=used`);
   }
 
+  const { data: exchanged } = await supabase.auth.getUser();
+  const next = await resolveLanding(rawNext, exchanged.user);
   return NextResponse.redirect(`${origin}${next}`);
 }

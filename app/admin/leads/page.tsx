@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import AdminHeader from "@/components/AdminHeader";
+import SubmitButton from "@/components/SubmitButton";
 import StatsStrip from "@/components/StatsStrip";
 import { requireAdmin } from "@/lib/auth";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
@@ -193,6 +194,7 @@ export default async function AdminLeadsPage({
       <AdminHeader
         currentPath="/admin/leads"
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         pendingClaims={counts.pendingClaims}
         pendingLeads={counts.byStatus.new}
@@ -213,17 +215,11 @@ export default async function AdminLeadsPage({
                 GoHighLevel
               </p>
             </div>
-            {/* POST, not a link — see app/auth/signout/route.ts. Kept on the
-                page rather than in AdminHeader, which the mockup renders as a
-                static user chip with no menu. */}
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
-              >
-                Sign out
-              </button>
-            </form>
+            {/* Sign-out moved INTO AdminHeader on 2026-08-06. The note that
+                stood here — "kept on the page rather than in AdminHeader, which
+                the mockup renders as a static user chip with no menu" — was the
+                reasoning that produced five copies of one control. The chip is
+                still menu-less; the control is simply inline beside it. */}
           </div>
 
           {searchParams.e && ERROR_TEXT[searchParams.e] && (
@@ -844,12 +840,12 @@ function Detail({
                 : "Only kept on a closed lead — reopening one clears it."}
             </p>
 
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Saving…"
               className={`w-full bg-navy px-5 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
             >
               Save
-            </button>
+            </SubmitButton>
           </form>
 
           <SectionHeading className="mt-7">Record</SectionHeading>

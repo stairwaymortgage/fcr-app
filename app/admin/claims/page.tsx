@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import AdminHeader from "@/components/AdminHeader";
+import SubmitButton from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
 import { CLAIM_ROLES, ID_PHOTO_BUCKET, oneRelation } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
-import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 import { approveClaim, rejectClaim } from "./actions";
@@ -144,6 +144,7 @@ export default async function AdminClaimsPage({
       <AdminHeader
         currentPath="/admin/claims"
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         pendingClaims={claims.length}
       />
@@ -166,23 +167,8 @@ export default async function AdminClaimsPage({
                 pending
               </span>
             </p>
-            {/*
-              POST to the existing route, not a Server Action and not a link.
-              Same control as the dashboard's, for the same reason recorded in
-              app/auth/signout/route.ts: a GET sign-out can be fired by any image
-              tag on any site, which logs a reviewer out mid-decision.
-
-              No client JS — a plain form and a route handler. There is nothing
-              here for "use client" to do.
-            */}
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
-              >
-                Sign out
-              </button>
-            </form>
+            {/* Sign-out moved to AdminHeader on 2026-08-06 — it was one of five
+                identical copies, one per admin page. */}
           </div>
         </div>
 
@@ -378,12 +364,16 @@ export default async function AdminClaimsPage({
                         placeholder="e.g. ID matches DBPR record"
                         className="border border-gray-300 bg-white px-3 py-2 text-note"
                       />
-                      <button
-                        type="submit"
+                      {/* Pending state matters more here than on a public form:
+                          approving links a real business to a real person, the
+                          action is slow enough to look stuck, and a second click
+                          would fire a second decision on the same claim. */}
+                      <SubmitButton
+                        pendingLabel="Approving…"
                         className="bg-status-success px-5 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-status-successDeep"
                       >
                         Approve — link profile to {claim.claimant_name.split(" ")[0]} →
-                      </button>
+                      </SubmitButton>
                     </form>
 
                     <form action={rejectClaim} className="flex flex-col gap-2">
@@ -415,12 +405,12 @@ export default async function AdminClaimsPage({
                         Optional. Leave it blank and the contractor sees only our
                         generic explanation — no reviewer note.
                       </p>
-                      <button
-                        type="submit"
+                      <SubmitButton
+                        pendingLabel="Rejecting…"
                         className="border border-status-error px-5 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-status-error transition-colors hover:bg-status-error hover:text-paper"
                       >
                         Reject
-                      </button>
+                      </SubmitButton>
                     </form>
                   </div>
 

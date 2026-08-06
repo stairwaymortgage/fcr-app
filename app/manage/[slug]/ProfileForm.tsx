@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 
+import { Spinner } from "@/components/SubmitButton";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 
 import { saveProfile } from "./actions";
@@ -205,8 +206,10 @@ function Actions({ slug }: { slug: string }) {
         <button
           type="submit"
           disabled={pending}
-          className={`bg-navy px-6 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
+          aria-busy={pending || undefined}
+          className={`inline-flex items-center justify-center gap-2 bg-navy px-6 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
         >
+          {pending && <Spinner />}
           {pending ? "Saving…" : "Save changes"}
         </button>
       </div>

@@ -51,6 +51,12 @@ export interface ContractorHeaderProps {
   userName: string;
 
   /**
+   * The signed-in address, shown under the name. Optional, matching
+   * AdminHeader — see the note there on why a name alone is not an identity.
+   */
+  userEmail?: string;
+
+  /**
    * Avatar initials, e.g. "CA". Uppercased at render.
    * Passed explicitly rather than derived from userName — derivation breaks on
    * single-word names, hyphenates, and suffixes. The session has this value.
@@ -191,6 +197,7 @@ export default function ContractorHeader({
   currentPath,
   contractorSlug,
   userName,
+  userEmail,
   userInitials,
   unreadInquiries,
 }: ContractorHeaderProps) {
@@ -225,11 +232,20 @@ export default function ContractorHeader({
           })}
         </nav>
 
-        {/* Static for v1. The mockup docs mention a dropdown for sign-out,
-            account, and billing, but no mockup defines its trigger, contents,
-            or open state — building it now would mean inventing design. When
-            there is a mockup and a real auth flow, this becomes a "use client"
-            <UserMenu>. */}
+        {/*
+          IDENTITY AND SIGN-OUT, ADDED 2026-08-06 — matching AdminHeader.
+
+          ⚠ TWO OF THE THREE PORTAL PAGES HAD NO SIGN-OUT AT ALL. Only
+          /manage/[slug]/settings rendered one; a contractor on their profile
+          editor or their inquiries inbox had no way to leave the account
+          without navigating to a third page to find the control. That is worse
+          on a shared or borrowed computer, which is a realistic way a small
+          contractor reads their mail.
+
+          The deferred dropdown note this replaces still holds — no mockup
+          defines its trigger or open state, so this is not that dropdown. It is
+          the two things a shell must always show, inline, with no client JS.
+        */}
         <div className="flex shrink-0 items-center gap-2.5 text-ui text-white/75">
           <span
             aria-hidden="true"
@@ -237,7 +253,24 @@ export default function ContractorHeader({
           >
             {userInitials.toUpperCase()}
           </span>
-          <span>{userName}</span>
+
+          <span className="flex flex-col leading-tight">
+            <span>{userName}</span>
+            {userEmail && (
+              <span className="font-mono text-chip text-white/50">{userEmail}</span>
+            )}
+          </span>
+
+          {/* POST, never GET — see app/auth/signout/route.ts. A native form
+              navigation, so no SubmitButton: useFormStatus never fires for it. */}
+          <form action="/auth/signout" method="post" className="ml-1.5">
+            <button
+              type="submit"
+              className={`border border-white/25 px-2.5 py-1 font-mono text-chip uppercase tracking-label text-white/70 transition-colors hover:border-gold hover:text-gold ${FOCUS_RING_NAVY}`}
+            >
+              Sign out
+            </button>
+          </form>
         </div>
       </div>
     </header>

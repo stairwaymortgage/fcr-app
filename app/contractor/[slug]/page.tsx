@@ -28,14 +28,31 @@ import { logoPublicUrl } from "@/lib/logo";
 import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
+import SubmitButton from "@/components/SubmitButton";
+
 import { submitInquiry } from "./actions";
 
 /**
  * Contractor profile — /contractor/[slug]
  * Source: _handoff/02_mockups_production/01_public_core/contractor_profile_aceca.html
  *
- * Server Component. The inquiry form posts to a Server Action, so the whole
- * page still ships zero client JS — no "use client" here or below.
+ * Server Component. The page itself carries no "use client".
+ *
+ * ⚠ IT NO LONGER SHIPS ZERO CLIENT JS, AND THAT WAS A DELIBERATE TRADE MADE ON
+ * 2026-08-06. The inquiry form's submit button is a client component so it can
+ * show a pending state (components/SubmitButton.tsx). Everything else on the
+ * page is still server-rendered.
+ *
+ * The property that was given up was load-bearing in one argument: Turnstile
+ * was deferred on this page partly because a challenge widget would cost the
+ * zero-JS property for every visitor. That reasoning is now weaker — the
+ * remaining case against Turnstile is that the counters already limit this form
+ * to 3 per 10 minutes, which stands on its own. See the foot of ./actions.ts.
+ *
+ * What it bought: the form could be submitted three times before the first
+ * response returned, and each submission was a lead a contractor pays for. The
+ * server-side duplicate suppression in ./actions.ts and this button are two
+ * halves of the same fix — one stops the row, the other stops the request.
  *
  * READS: lib/supabase/server.ts (anon, RLS). WRITE: ./actions.ts only.
  *
@@ -755,9 +772,15 @@ const ERROR_TEXT: Record<string, string> = {
  * Contact form. NOT IN THE MOCKUP — added on request.
  *
  * Posts to the Server Action in ./actions.ts, which is the only write path in
- * the public app. No "use client": a plain form with a server action works
- * without JavaScript, and validation feedback comes back through the URL rather
- * than through useFormState (which would require a client bundle).
+ * the public app. The form itself is still server-rendered and validation
+ * feedback still comes back through the URL rather than through useFormState —
+ * only the submit button is a client component, and only so it can disable
+ * itself while the action is in flight.
+ *
+ * IT STILL WORKS WITHOUT JAVASCRIPT. With JS off the button renders as a plain
+ * submit and the form posts normally; what is lost is the pending state, not
+ * the ability to send a message. That was the condition for touching this page
+ * at all.
  *
  * The client-side attributes below (required, maxLength, type="email") are
  * courtesies for real users and are NOT the validation. A server action is a
@@ -872,12 +895,12 @@ function InquiryForm({
           />
         </label>
 
-        <button
-          type="submit"
+        <SubmitButton
+          pendingLabel="Sending…"
           className={`mt-1 bg-navy px-4 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
         >
           Send message
-        </button>
+        </SubmitButton>
 
         <p className="text-xs leading-[1.5] text-gray-500">
           Your message goes to this contractor through the registry. We

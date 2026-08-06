@@ -120,8 +120,12 @@ export default async function DashboardPage({
           </div>
 
           <div className="mt-8 flex items-center gap-6">
+            {/* /admin/claims directly rather than /admin. The index route now
+                exists and redirects here, so both work — but linking to the
+                destination skips a round trip, and this link is the one that
+                was reported as a 404. */}
             {admin && (
-              <Link href="/admin" className="text-note font-medium text-navy underline">
+              <Link href="/admin/claims" className="text-note font-medium text-navy underline">
                 Admin
               </Link>
             )}

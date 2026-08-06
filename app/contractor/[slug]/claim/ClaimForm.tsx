@@ -10,6 +10,7 @@ import {
   ID_PHOTO_MAX_BYTES,
   ID_PHOTO_MIME_TYPES,
 } from "@/lib/claims";
+import { Spinner } from "@/components/SubmitButton";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { createClient } from "@/lib/supabase/client";
 
@@ -304,8 +305,10 @@ export default function ClaimForm({
         <button
           type="submit"
           disabled={!claimId || uploading || submitting}
-          className={`w-full bg-navy px-6 py-4 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-50 ${FOCUS_RING_PAPER}`}
+          aria-busy={submitting || undefined}
+          className={`inline-flex w-full items-center justify-center gap-2 bg-navy px-6 py-4 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-50 ${FOCUS_RING_PAPER}`}
         >
+          {submitting && <Spinner />}
           {submitting ? "Submitting…" : "Submit for verification →"}
         </button>
         {!claimId && (

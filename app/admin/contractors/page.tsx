@@ -229,6 +229,7 @@ export default async function AdminContractorsPage({
       <AdminHeader
         currentPath="/admin/contractors"
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         pendingClaims={pendingClaimCount.count ?? 0}
         pendingLeads={stats.newLeads}
@@ -250,14 +251,7 @@ export default async function AdminContractorsPage({
                 {stats.lastSync && <> · DBPR synced {relativeTime(stats.lastSync)}</>}
               </p>
             </div>
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className={`text-note font-medium text-gray-600 underline hover:text-navy ${FOCUS_RING_PAPER}`}
-              >
-                Sign out
-              </button>
-            </form>
+            {/* Sign-out moved to AdminHeader on 2026-08-06. */}
           </div>
 
           <div className="mb-8">

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
 import ContractorHeader from "@/components/ContractorHeader";
+import SubmitButton from "@/components/SubmitButton";
 import { requireUser } from "@/lib/auth";
 import {
   formatBusinessName,
@@ -142,6 +143,7 @@ export default async function SettingsPage({
         currentPath={`/manage/${params.slug}/settings`}
         contractorSlug={params.slug}
         userName={displayName}
+        userEmail={user.email}
         userInitials={initialsFor(displayName)}
         unreadInquiries={unread ?? 0}
       />
@@ -245,18 +247,10 @@ export default async function SettingsPage({
               )}
             </Row>
 
-            <Row label="Sign out">
-              {/* POST, not a link. A GET sign-out can be fired by any image tag
-                  on any site — see app/auth/signout/route.ts. */}
-              <form action="/auth/signout" method="post">
-                <button
-                  type="submit"
-                  className={`border border-gray-300 bg-white px-4 py-2.5 font-mono text-label uppercase tracking-label text-gray-700 transition-colors hover:border-navy hover:text-navy ${FOCUS_RING_PAPER}`}
-                >
-                  Sign out
-                </button>
-              </form>
-            </Row>
+            {/* Sign-out moved to ContractorHeader on 2026-08-06, where it is
+                reachable from all three portal pages. It lived here alone, so a
+                contractor on their profile editor or inquiries inbox had to
+                navigate here first to find it. */}
           </Section>
 
           <Section
@@ -378,12 +372,12 @@ export default async function SettingsPage({
                     maxLength={200}
                     className={`w-[280px] max-w-full border border-gray-300 bg-white px-3 py-2.5 text-note text-ink ${FOCUS_RING_PAPER}`}
                   />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Releasing…"
                     className={`border border-status-error bg-white px-5 py-2.5 font-mono text-label font-semibold uppercase tracking-label text-status-error transition-colors hover:bg-status-errorBg ${FOCUS_RING_PAPER}`}
                   >
                     Release this profile
-                  </button>
+                  </SubmitButton>
                 </div>
               </form>
             </div>
