@@ -155,6 +155,30 @@ export const metadata: Metadata = {
   robots: isIndexable()
     ? { index: true, follow: true }
     : { index: false, follow: false },
+
+  /**
+   * Google Search Console site verification.
+   *
+   * Next emits <meta name="google-site-verification" content="…"> from this.
+   * Written through the metadata API rather than as a hand-placed tag in the
+   * <head> below, so it sits with the rest of the head content and cannot drift
+   * out of sync with it.
+   *
+   * ⚠ IT IS EMITTED ON EVERY ENVIRONMENT, INCLUDING PREVIEWS — deliberately,
+   * and NOT gated behind isIndexable() like `robots` above. The two look like
+   * they should agree and they should not: a verification token proves to
+   * Google that whoever holds it controls this property, which is a claim about
+   * ownership rather than an invitation to crawl. Gating it would break
+   * verification on exactly the deployment you might be asked to verify, while
+   * the noindex directive above continues to do the actual keep-out work.
+   *
+   * The token is public by design — it ships in the HTML of every page and is
+   * meant to be read by a crawler. It is not a credential and does not belong
+   * in an environment variable.
+   */
+  verification: {
+    google: "dQW9d9skbyfRlU3igycnet2erkgu0SOPOe-RQ5-gY_Q",
+  },
 };
 
 export default function RootLayout({
