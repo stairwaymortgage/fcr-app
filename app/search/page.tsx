@@ -494,6 +494,12 @@ export default async function SearchPage({
     ]);
 
   const rows = sortFeaturedFirst(contractors.rows);
+  /**
+   * A FLOOR WHEN contractors.hasMore, NOT A TOTAL. The contractor search no
+   * longer runs a count (see lib/search.ts), so when it caps out this sum is
+   * "at least this many" and the copy below says so with a "+" rather than
+   * printing it as if it were exhaustive.
+   */
   const totalMatches = contractors.total + cities.length + licenseTypes.length;
   const hasAnything = rows.length > 0 || cities.length > 0 || licenseTypes.length > 0;
 
@@ -504,8 +510,9 @@ export default async function SearchPage({
   ) : (
     <>
       <strong className="font-mono font-semibold text-ink">
-        {totalMatches.toLocaleString("en-US")}{" "}
-        {totalMatches === 1 ? "result" : "results"}
+        {totalMatches.toLocaleString("en-US")}
+        {contractors.hasMore ? "+" : ""}{" "}
+        {totalMatches === 1 && !contractors.hasMore ? "result" : "results"}
       </strong>{" "}
       · Searched{" "}
       {parsed.tokens.map((token, index) => (
@@ -542,17 +549,24 @@ export default async function SearchPage({
           <section className="mb-14">
             <SectionHeader
               title="Contractors"
-              count={`${contractors.total.toLocaleString("en-US")} ${
-                contractors.total === 1 ? "match" : "matches"
-              }`}
+              count={
+                contractors.hasMore
+                  ? `${SEARCH_LIMIT.toLocaleString("en-US")}+ matches`
+                  : `${contractors.total.toLocaleString("en-US")} ${
+                      contractors.total === 1 ? "match" : "matches"
+                    }`
+              }
             >
-              {/* Capped list, honest label. The count above is the true total;
-                  this says plainly how much of it is on the page, so 50 rows
-                  never read as "all of them". */}
-              {contractors.total > rows.length && (
+              {/*
+                Capped list, honest label — and it no longer claims a total it
+                cannot cheaply know. It used to read "Showing first 50 of
+                19,316", where the 19,316 came from a count that timed out on
+                this very query. "the first 50" is the part that was always
+                load-bearing: it stops 50 rows reading as "all of them".
+              */}
+              {contractors.hasMore && (
                 <p className="font-mono text-micro tracking-[0.04em] text-gray-500">
-                  Showing first {rows.length} of{" "}
-                  {contractors.total.toLocaleString("en-US")}
+                  Showing the first {rows.length}
                 </p>
               )}
             </SectionHeader>
@@ -573,7 +587,7 @@ export default async function SearchPage({
               ))}
             </ul>
 
-            {contractors.total > SEARCH_LIMIT && (
+            {contractors.hasMore && (
               <p className="mt-6 text-note text-gray-700">
                 Narrow your search to see more — add a city, or use the license
                 number.

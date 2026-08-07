@@ -306,7 +306,7 @@ export default function ClaimForm({
           type="submit"
           disabled={!claimId || uploading || submitting}
           aria-busy={submitting || undefined}
-          className={`inline-flex w-full items-center justify-center gap-2 bg-navy px-6 py-4 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-50 ${FOCUS_RING_PAPER}`}
+          className={`inline-flex w-full items-center justify-center gap-2 bg-navy px-6 py-4 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep disabled:opacity-50 ${FOCUS_RING_PAPER}`}
         >
           {submitting && <Spinner />}
           {submitting ? "Submitting…" : "Submit for verification →"}

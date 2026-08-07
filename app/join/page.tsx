@@ -163,6 +163,13 @@ export default async function JoinPage({
 
   let results: ContractorResult[] = [];
   let total = 0;
+  /**
+   * True when the registry holds more matches than the search cap. The lookup no
+   * longer runs a count (see lib/search.ts), so `total` is exact only when this
+   * is false — printing it regardless would claim "50 records match" for a name
+   * with thousands.
+   */
+  let hasMore = false;
   let searchFailed = false;
 
   if (!showAddForm && !sent && parsed.tokens.length > 0) {
@@ -170,6 +177,7 @@ export default async function JoinPage({
     const found = await searchContractors(db, parsed);
     results = sortFeaturedFirst(found.rows);
     total = found.total;
+    hasMore = found.hasMore;
     searchFailed = found.failed;
   }
 
@@ -228,7 +236,7 @@ export default async function JoinPage({
                 />
                 <button
                   type="submit"
-                  className={`bg-navy px-6 py-2 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+                  className={`bg-navy px-6 py-2 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
                 >
                   Find it
                 </button>
@@ -255,16 +263,18 @@ export default async function JoinPage({
               {results.length > 0 && (
                 <section className="mb-10">
                   <h2 className="mb-4 font-serif text-[22px] font-semibold text-navy">
-                    {total === 1
-                      ? "One record matches"
-                      : `${total.toLocaleString("en-US")} records match`}
+                    {hasMore
+                      ? "More than 50 records match"
+                      : total === 1
+                        ? "One record matches"
+                        : `${total.toLocaleString("en-US")} records match`}
                   </h2>
                   <ul className="flex flex-col gap-3">
                     {results.slice(0, SHOWN).map((row) => (
                       <MatchRow key={row.dbpr_sync_key} row={row} />
                     ))}
                   </ul>
-                  {total > SHOWN && (
+                  {(hasMore || total > SHOWN) && (
                     <p className="mt-4 text-note leading-[1.6] text-gray-600">
                       Showing the first {SHOWN}. If yours isn&rsquo;t here, add
                       your city or license number to the search.
@@ -293,7 +303,7 @@ export default async function JoinPage({
                     href={`/join?add=1${
                       parsed.raw ? `&name=${encodeURIComponent(parsed.raw)}` : ""
                     }`}
-                    className={`inline-block bg-navy px-[18px] py-[11px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+                    className={`inline-block bg-navy px-[18px] py-[11px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
                   >
                     Request to be added →
                   </Link>
@@ -532,7 +542,7 @@ function AddForm({
 
         <SubmitButton
           pendingLabel="Sending…"
-          className={`mt-1 self-start bg-navy px-6 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+          className={`mt-1 self-start bg-navy px-6 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
         >
           Send request
         </SubmitButton>

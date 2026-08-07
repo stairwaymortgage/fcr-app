@@ -81,7 +81,7 @@ export default async function ClaimSubmittedPage() {
           {contractor?.slug && (
             <Link
               href={`/contractor/${contractor.slug}`}
-              className="inline-block bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light"
+              className="inline-block bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep"
             >
               View the profile →
             </Link>

@@ -342,7 +342,7 @@ function RequestCard({ row }: { row: RequestRow }) {
           </label>
           <SubmitButton
             pendingLabel="Approving…"
-            className="self-start bg-navy px-5 py-2.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light"
+            className="self-start bg-navy px-5 py-2.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep"
           >
             Approve
           </SubmitButton>

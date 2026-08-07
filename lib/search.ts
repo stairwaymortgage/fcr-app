@@ -31,8 +31,13 @@ type Db = ReturnType<typeof createClient>;
 
 /**
  * Rows per search. Hard cap — never issue an unbounded select against 266,305
- * rows. The page reports the true total alongside, from an exact count, so a
- * capped list never reads as a complete one.
+ * rows.
+ *
+ * ⚠ THE QUERY ASKS FOR SEARCH_LIMIT + 1 AND SLICES THE EXTRA OFF. That one row
+ * is how the page knows whether a 51st match exists without running a count —
+ * see the note on ContractorSearchResult.hasMore. The page used to print an
+ * exact total here; it no longer does, because producing that number cost more
+ * than the search itself and timed out on common queries.
  */
 export const SEARCH_LIMIT = 50;
 
@@ -151,8 +156,53 @@ export interface ContractorResult {
 
 export interface ContractorSearchResult {
   rows: ContractorResult[];
-  /** Exact total, which may exceed rows.length — see SEARCH_LIMIT. */
+  /**
+   * EXACT, BUT ONLY MEANINGFUL WHEN hasMore IS FALSE.
+   *
+   * When hasMore is false this is the true total and rows holds all of it. When
+   * hasMore is true this is SEARCH_LIMIT — a floor, not a total — and the UI
+   * must say "50+" or "the first 50" rather than print it as a count.
+   *
+   * ⚠ NEVER RENDER total WITHOUT CHECKING hasMore. "Showing first 50 of 50" is
+   * the failure this shape exists to make obvious at the call site.
+   */
   total: number;
+  /**
+   * True when the registry holds more matches than SEARCH_LIMIT.
+   *
+   * ═══════════════════════════════════════════════════════════════════════
+   * THIS REPLACED `count: "exact"` ON 2026-08-07, AND NOT WITH AN ESTIMATE.
+   *
+   * The exact count was the expensive half of every search: it visits every
+   * matching row and cannot stop at 50. For "miami" — 19,316 matches, 98.8% of
+   * them from `city ILIKE '%miami%'` — it measured 1,566-2,824 ms on its own,
+   * against a 3-second statement_timeout on the `anon` role. That is the 57014
+   * that was observed, and it recurs whenever the cache is cold.
+   *
+   * ⚠ PostgREST's count=estimated WAS TRIED AND IS UNUSABLE HERE. Measured
+   * against this exact query:
+   *
+   *     term      exact    estimated
+   *     miami     19,316   1,280
+   *     roofing   13,917   1,001
+   *     orlando    7,584   1,001
+   *     aceca          4       4
+   *
+   * It is exact for small result sets and 7-15x LOW for large ones, returning
+   * plausible-looking numbers that are simply wrong. "About 1,280 results" over
+   * 19,316 is worse than no number at all, and it would make "showing first 50
+   * of 1,280" a false statement. count=planned is worse still — it reported
+   * 1,280 for a query with four matches.
+   *
+   * SO NOTHING IS ESTIMATED. We fetch SEARCH_LIMIT + 1 rows and look at how
+   * many came back. Fewer than the cap means we have them all and the total is
+   * exactly rows.length, for free. Hitting the cap means "more than 50", which
+   * is all the page needs in order to say so honestly. No count query runs at
+   * all — measured 319-366 ms against 414-948 ms with count=exact, and it
+   * removes the unbounded worst case entirely.
+   * ═══════════════════════════════════════════════════════════════════════
+   */
+  hasMore: boolean;
   /** True when the licence-number fast path produced the rows. */
   matchedByLicenseNumber: boolean;
   /**
@@ -167,6 +217,35 @@ export interface ContractorSearchResult {
    */
   failed: boolean;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * BACKLOG (approved as a documented item on 2026-08-07, deliberately NOT built):
+ * A CITY-EQUALITY FAST PATH.
+ *
+ * Removing the count took the worst case off the table, but it did not make
+ * this query fast — it is still a four-way leading-wildcard ILIKE served by GIN
+ * trigram indexes, which return candidates that must then be rechecked against
+ * the heap. For "miami" that is 19,316 rows across 6,681 heap blocks, ~130 ms
+ * warm and ~2.5 s cold.
+ *
+ * The shape of the fix: 98.8% of those matches (19,082 of 19,316) come from the
+ * `city ILIKE '%miami%'` arm alone, and the equality form of that same
+ * predicate — `city = 'MIAMI'`, 16,202 rows — is served by
+ * idx_contractors_city_name in 4.28 ms. Two orders of magnitude, on the arm
+ * that dominates the cost.
+ *
+ * So: when the whole query exactly matches a known city name, query by equality
+ * instead of by substring. searchCities() below already reads that list, so the
+ * data needed to decide is already being fetched on the same page.
+ *
+ * WHY IT IS NOT DONE HERE. It changes what the search RETURNS, not just how
+ * fast it returns it — equality would drop "Miami Beach", "Miami Gardens" and
+ * every business whose NAME contains "miami" while its city does not. That is a
+ * product decision about what searching a city name should mean, and it wants
+ * to be made deliberately rather than as a side effect of a performance patch.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 /**
  * One OR group per token: the token may appear in any of the four columns.
@@ -207,7 +286,7 @@ export async function searchContractors(
   parsed: ParsedQuery,
 ): Promise<ContractorSearchResult> {
   if (parsed.tokens.length === 0) {
-    return { rows: [], total: 0, matchedByLicenseNumber: false, failed: false };
+    return { rows: [], total: 0, hasMore: false, matchedByLicenseNumber: false, failed: false };
   }
 
   if (parsed.licenseNumber) {
@@ -215,14 +294,17 @@ export async function searchContractors(
     const exact = await excludeTestRows(
       db
         .from("contractors")
-        .select(RESULT_COLUMNS, { count: "exact" })
+        .select(RESULT_COLUMNS)
         .eq("license_number", parsed.licenseNumber),
-    ).limit(SEARCH_LIMIT);
+    ).limit(SEARCH_LIMIT + 1);
 
-    if (!exact.error && (exact.count ?? 0) > 0) {
+    if (!exact.error && (exact.data?.length ?? 0) > 0) {
+      const found = (exact.data ?? []) as ContractorResult[];
+      const hasMore = found.length > SEARCH_LIMIT;
       return {
-        rows: (exact.data ?? []) as ContractorResult[],
-        total: exact.count ?? 0,
+        rows: found.slice(0, SEARCH_LIMIT),
+        total: hasMore ? SEARCH_LIMIT : found.length,
+        hasMore,
         matchedByLicenseNumber: true,
         failed: false,
       };
@@ -232,21 +314,21 @@ export async function searchContractors(
     // surfaces there.
   }
 
-  let query = excludeTestRows(
-    db.from("contractors").select(RESULT_COLUMNS, { count: "exact" }),
-  );
+  let query = excludeTestRows(db.from("contractors").select(RESULT_COLUMNS));
   for (const token of parsed.tokens) {
     query = query.or(orFilterFor(token));
   }
 
-  const { data, count, error } = await query
+  const { data, error } = await query
     // business_name is NULL on ~125k rows; nullsFirst: false puts those after
     // the named businesses rather than leading the page with blanks. The
     // qualifying_agent_name tiebreak makes the order deterministic — without it
     // Postgres may return equal-keyed rows differently between requests.
     .order("business_name", { ascending: true, nullsFirst: false })
     .order("qualifying_agent_name", { ascending: true })
-    .limit(SEARCH_LIMIT);
+    // ONE MORE THAN WE SHOW. The extra row is how "is there a 51st?" is answered
+    // without a count query. It is sliced off before rendering.
+    .limit(SEARCH_LIMIT + 1);
 
   if (error) {
     // Logged, not swallowed. Without this the only symptom of a broken search
@@ -256,12 +338,15 @@ export async function searchContractors(
       code: error.code,
       message: error.message,
     });
-    return { rows: [], total: 0, matchedByLicenseNumber: false, failed: true };
+    return { rows: [], total: 0, hasMore: false, matchedByLicenseNumber: false, failed: true };
   }
 
+  const found = (data ?? []) as ContractorResult[];
+  const hasMore = found.length > SEARCH_LIMIT;
   return {
-    rows: (data ?? []) as ContractorResult[],
-    total: count ?? 0,
+    rows: found.slice(0, SEARCH_LIMIT),
+    total: hasMore ? SEARCH_LIMIT : found.length,
+    hasMore,
     matchedByLicenseNumber: false,
     failed: false,
   };

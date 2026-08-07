@@ -788,7 +788,7 @@ function QuoteCta({ name, slug }: { name: string; slug: string }) {
 
       <Link
         href={`/diagnostic?from=${encodeURIComponent(slug)}`}
-        className={`inline-block bg-navy px-[18px] py-[11px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+        className={`inline-block bg-navy px-[18px] py-[11px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
       >
         Request a Quote &rarr;
       </Link>
@@ -912,7 +912,7 @@ export default async function ContractorProfilePage({
                 href={dbprVerifyUrl(contractor.license_number)}
                 rel="noopener noreferrer nofollow"
                 target="_blank"
-                className={`mt-[18px] block bg-navy px-4 py-3.5 text-center text-[12.5px] font-medium tracking-[0.02em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+                className={`mt-[18px] block bg-navy px-4 py-3.5 text-center text-[12.5px] font-medium tracking-[0.02em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
               >
                 <span className="mb-1 block font-mono text-label uppercase tracking-[0.1em] text-gold-light">
                   Verify on

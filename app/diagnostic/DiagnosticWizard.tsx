@@ -247,7 +247,7 @@ export default function DiagnosticWizard({
           <button
             type="button"
             onClick={() => goToQuestion(REFLECT_AFTER)}
-            className={`inline-flex items-center gap-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+            className={`inline-flex items-center gap-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep ${FOCUS_RING_PAPER}`}
           >
             Continue <ArrowIcon />
           </button>
@@ -442,7 +442,7 @@ export default function DiagnosticWizard({
             type="submit"
             disabled={pending}
             aria-busy={pending || undefined}
-            className={`mt-2 inline-flex items-center justify-center gap-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light disabled:opacity-60 ${FOCUS_RING_PAPER}`}
+            className={`mt-2 inline-flex items-center justify-center gap-2 bg-navy px-6 py-3.5 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-deep disabled:opacity-60 ${FOCUS_RING_PAPER}`}
           >
             {pending && <Spinner />}
             {pending ? "Sending…" : "Request the conversation"}
