@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
 import { getUser, isAdmin } from "@/lib/auth";
+import { revalidateAfterClaimDecision } from "@/lib/revalidate";
 import { oneRelation } from "@/lib/claims";
 import { formatBusinessName } from "@/lib/contractor-profile";
 import { sendClaimDecisionEmail, type ClaimDecision } from "@/lib/email";
@@ -147,21 +148,22 @@ async function notifyDecision(
   }
 }
 
-/** Slug shape, so a malformed value cannot reach revalidatePath. */
-const SLUG_SHAPE = /^[a-z0-9-]{1,200}$/;
+
 
 /**
- * Bust the public profile after a decision.
+ * Bust the public profile AND the cached listings after a decision.
  *
- * approve_claim() changes what that page renders — the claimed disclaimer, the
+ * approve_claim() changes what the profile renders — the claimed disclaimer, the
  * claim box, the owner's About text and every custom contact field all turn on
- * claimed_by_user_id. The page is dynamic today, so this is currently a no-op;
- * it is here so that adding `export const revalidate` to /contractor/[slug]
- * later cannot silently stop approvals from appearing.
+ * claimed_by_user_id. It ALSO moves claim_tier, which the listing pages render
+ * as a badge; those are statically cached for 24 hours as of 2026-08-07, so
+ * without this a decision would not reach them for a day.
+ *
+ * The local slug-shape guard and revalidatePath call moved into
+ * lib/revalidate.ts when the listing routes became cached, so the profile and
+ * the listings cannot drift apart across the two decision paths here and the
+ * release path in /manage.
  */
-function revalidateProfile(slug: string | null): void {
-  if (slug && SLUG_SHAPE.test(slug)) revalidatePath(`/contractor/${slug}`);
-}
 
 export async function approveClaim(formData: FormData): Promise<void> {
   await requireAdminOr404();
@@ -187,7 +189,7 @@ export async function approveClaim(formData: FormData): Promise<void> {
 
   // After the RPC, never before: the contractor must not be told a claim was
   // approved by a call that then failed.
-  revalidateProfile(await notifyDecision(db, claimId, "approved"));
+  revalidateAfterClaimDecision(await notifyDecision(db, claimId, "approved"));
 
   revalidatePath("/admin/claims");
   back({ ok: "approved" });
@@ -219,7 +221,7 @@ export async function rejectClaim(formData: FormData): Promise<void> {
     back({ error: error.message });
   }
 
-  revalidateProfile(await notifyDecision(db, claimId, "rejected"));
+  revalidateAfterClaimDecision(await notifyDecision(db, claimId, "rejected"));
 
   revalidatePath("/admin/claims");
   back({ ok: "rejected" });

@@ -40,6 +40,22 @@ import ContentPageLayout, {
  * ===========================================================================
  */
 
+/**
+ * ⚠ REQUIRED, NOT DECORATION. Without it this page is FULLY static and its
+ * "Data as of …" line — rendered by Header and Footer via dataAsOf() — is baked
+ * in at build time and never updates again, including after a weekly DBPR
+ * import.
+ *
+ * That became possible on 2026-08-07: dataAsOf() stopped reading cookies (see
+ * lib/supabase/public.ts), which was the only thing keeping these content pages
+ * dynamic. They went static as a side effect and would have frozen the date
+ * permanently. lib/data-as-of.ts predicted exactly this failure in its docblock.
+ *
+ * 86400 matches the listing routes: DBPR publishes weekly, so a day is well
+ * inside the window in which the date can actually change.
+ */
+export const revalidate = 86400;
+
 export const metadata: Metadata = {
   title: "DMCA Notice and Takedown · Florida Contractor Registry",
   description:

@@ -3,6 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
+import { revalidateListings } from "@/lib/revalidate";
+
 import { getUser } from "@/lib/auth";
 import { LOGO_BUCKET } from "@/lib/logo";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -130,6 +132,13 @@ export async function releaseProfile(formData: FormData): Promise<void> {
   // now 404 for this user — both must be rebuilt rather than served stale.
   revalidatePath(`/contractor/${slug}`);
   revalidatePath(`/manage/${slug}`);
+  /**
+   * A release clears claim_tier back to 'unclaimed', which the listing pages
+   * render as a badge. They are statically cached for 24 hours as of
+   * 2026-08-07, so without this the profile would show as unclaimed while every
+   * listing still showed it claimed, for up to a day.
+   */
+  revalidateListings();
 
   redirect(`/dashboard?released=${encodeURIComponent(slug)}`);
 }

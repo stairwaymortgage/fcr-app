@@ -7,7 +7,7 @@ import Header from "@/components/Header";
 import { getCities, getCountyMeta } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
-import { createClient } from "@/lib/supabase/server";
+import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * Cities index — /cities
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
 export const revalidate = 86400;
 
 export default async function CitiesPage() {
-  const db = createClient();
+  const db = createPublicClient();
   const [cities, countyMeta, asOf] = await Promise.all([
     getCities(db),
     getCountyMeta(db),

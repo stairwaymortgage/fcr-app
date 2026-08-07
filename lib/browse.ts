@@ -1,4 +1,4 @@
-import type { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 // Relative, not "@/lib/test-rows" — see the note in lib/search.ts. A value
 // import on an aliased path breaks node's type-stripping loader, which the
 // verify suites use.
@@ -24,7 +24,18 @@ import { excludeTestRows } from "./test-rows.ts";
  * pages. Re-measure before adding a filter on any other column.
  */
 
-type Db = ReturnType<typeof createClient>;
+/**
+ * Either Supabase client.
+ *
+ * Widened from ReturnType<typeof createClient> on 2026-08-07 so these helpers
+ * accept lib/supabase/public.ts's cookie-free client as well as the
+ * session-carrying one from lib/supabase/server.ts. Both are SupabaseClient and
+ * both read under the same anon RLS; only the cookie dependency differs, and
+ * that dependency is what decides whether the calling route can be static.
+ *
+ * The caller picks. Nothing in this module should ever construct a client.
+ */
+type Db = SupabaseClient;
 
 /** Rows per page. Bounded — never an unbounded select against 266,305 rows. */
 export const PAGE_SIZE = 25;
@@ -100,13 +111,29 @@ export async function getContractorPage(
   db: Db,
   filters: Record<string, string>,
   page: number,
+  /**
+   * Pass a total the caller already knows, to skip the exact count.
+   *
+   * ⚠ THE COUNT IS THE EXPENSIVE HALF OF THIS FUNCTION. `count: "exact"` makes
+   * Postgres count every matching row before returning 25 of them — measured at
+   * 122 ms for Miami-Dade against 42 ms for the rows themselves. On the county
+   * page that work is pure waste twice over: the unfiltered total is already
+   * stored in reference_counties.contractor_count, and the ?type= total is
+   * already in the map getTypeCountsInCounty returns.
+   *
+   * Omit it and the count runs as before, which is what /city and /type still
+   * do — their totals are not precomputed anywhere.
+   */
+  knownTotal?: number,
 ): Promise<ContractorPage> {
   const from = (page - 1) * PAGE_SIZE;
 
   // Synthetic verify-suite rows never appear in a browse list. See
   // lib/test-rows.ts for why the read paths carry this and not just cleanup.
   let query = excludeTestRows(
-    db.from("contractors").select(LIST_COLUMNS, { count: "exact" }),
+    db
+      .from("contractors")
+      .select(LIST_COLUMNS, knownTotal === undefined ? { count: "exact" } : {}),
   );
   for (const [column, value] of Object.entries(filters)) {
     query = query.eq(column, value);
@@ -122,7 +149,9 @@ export async function getContractorPage(
     return { rows: [], total: 0, page, pageCount: 0, failed: true };
   }
 
-  const total = count ?? 0;
+  // knownTotal wins when supplied — `count` is null in that case, because the
+  // query above deliberately did not ask for one.
+  const total = knownTotal ?? count ?? 0;
   return {
     rows: (data ?? []) as unknown as ContractorRow[],
     total,
@@ -203,10 +232,20 @@ export async function getCountiesWithCounts(db: Db): Promise<CountyRow[]> {
   );
 }
 
+/**
+ * ⚠ ROUTES MUST IMPORT THIS FROM lib/browse-cached.ts, NOT FROM HERE.
+ *
+ * generateMetadata and the page body both look up the same slug, so an
+ * unwrapped call costs two identical queries per request. The React cache()
+ * wrapper that dedupes them lives next door — see that file for why it is not
+ * applied here.
+ */
 export async function getCountyBySlug(db: Db, slug: string) {
   const { data } = await db
     .from("reference_counties")
-    .select("county_code, county_name, county_slug, region, population")
+    // contractor_count added 2026-08-07: the county page uses it as the list
+    // total instead of paying for a second exact count of the same 26k rows.
+    .select("county_code, county_name, county_slug, region, population, contractor_count")
     .eq("county_slug", slug)
     .maybeSingle();
   return data ?? null;
@@ -260,6 +299,7 @@ export async function getCities(db: Db): Promise<CityRow[]> {
   return error || !data ? [] : (data as CityRow[]);
 }
 
+/** Import from lib/browse-cached.ts in routes — see getCountyBySlug. */
 export async function getCityBySlug(db: Db, slug: string) {
   const { data } = await db
     .from("reference_cities")
@@ -334,6 +374,7 @@ export async function getTypesWithCounts(db: Db): Promise<TypeRow[]> {
   return withCounts.sort((a, b) => b.count - a.count);
 }
 
+/** Import from lib/browse-cached.ts in routes — see getCountyBySlug. */
 export async function getTypeByCode(db: Db, code: string) {
   const { data } = await db
     .from("reference_license_types")
@@ -354,25 +395,58 @@ export async function getTypeNameMap(db: Db): Promise<Map<string, string>> {
 /**
  * Counts per licence type within one county — the county page's filter counts.
  *
- * Limited to the types that actually occur, and issued concurrently. Skipping
- * the 11 empty types keeps this at ~18 probes rather than 29.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ONE RPC, NOT ~18 ROUND TRIPS. Changed 2026-08-07.
+ *
+ * This used to issue one count(*) per licence type, concurrently — about 18 of
+ * them on a populated county, each its own HTTP request to PostgREST. Measured
+ * on the live table for Miami-Dade: 13.9 ms per type count versus 50.9 ms for
+ * the single GROUP BY that replaces all of them. The database time is
+ * comparable; eighteen round trips from a Vercel function are not.
+ *
+ * Requires db/migrations/20260807_county_type_counts_rpc.sql.
+ *
+ * ⚠ THE RPC APPLIES THE ZZTEST EXCLUSION ITSELF, in SQL, duplicating
+ * TEST_ROW_LIKE. It has to — a SQL function cannot import a TS constant. If the
+ * prefix in lib/test-rows.ts ever changes, that function must change with it, or
+ * the filter panel will count synthetic rows the listing beside it excludes.
+ *
+ * FAILS SOFT AND SAYS SO. A missing function (PGRST202, i.e. the migration has
+ * not been run) or any other error returns an empty map, so the page renders
+ * without filter counts rather than 500ing. The log names the migration,
+ * because "the filter panel is empty" is not a symptom anyone would trace back
+ * to a missing RPC on their own.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 export async function getTypeCountsInCounty(
   db: Db,
   countyCode: string,
-  typeCodes: string[],
 ): Promise<Map<string, number>> {
-  const entries = await Promise.all(
-    typeCodes.map(async (code) => {
-      const { count } = await db
-        .from("contractors")
-        .select("*", { count: "exact", head: true })
-        .eq("county_code", countyCode)
-        .eq("license_type", code);
-      return [code, count ?? 0] as const;
-    }),
+  const { data, error } = await db.rpc("county_type_counts", {
+    p_county_code: countyCode,
+  });
+
+  if (error) {
+    console.error("[browse] county_type_counts failed — filter counts omitted", {
+      countyCode,
+      code: error.code,
+      message: error.message,
+      hint:
+        error.code === "PGRST202"
+          ? "db/migrations/20260807_county_type_counts_rpc.sql has not been run."
+          : undefined,
+    });
+    return new Map();
+  }
+
+  const rows = (data ?? []) as { type_code: string; n: number | string }[];
+  // count(*) is bigint; PostgREST may render it as a JSON string rather than a
+  // number, so it is coerced rather than trusted to arrive numeric.
+  return new Map(
+    rows
+      .map((r) => [r.type_code, Number(r.n)] as const)
+      .filter(([, n]) => Number.isFinite(n) && n > 0),
   );
-  return new Map(entries.filter(([, n]) => n > 0));
 }
 
 /* ========================================================================== *
@@ -385,7 +459,11 @@ export async function getTypeCountsInCounty(
  * "Co", so "SMITH & SONS CO." cased differently on a browse card than on a
  * profile.
  */
-export { businessName as titleCase, personName } from "@/lib/format-name";
+// Relative + .ts extension, not "@/lib/format-name": this module is imported at
+// runtime by scripts/verify-test-row-isolation.mjs under
+// --experimental-strip-types, where node resolves neither the alias nor an
+// extensionless path. Same constraint as lib/search.ts — see the note there.
+export { businessName as titleCase, personName } from "./format-name.ts";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 

@@ -9,10 +9,10 @@ import Header from "@/components/Header";
 import {
   getContractorPage,
   getCountyNameMap,
-  getTypeByCode,
   getTypeNameMap,
   parsePage,
 } from "@/lib/browse";
+import { getTypeByCode } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";

@@ -8,7 +8,7 @@ import { getCountiesWithCounts } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { COUNTY_COUNT, contractorCountLabel } from "@/lib/registry-stats";
-import { createClient } from "@/lib/supabase/server";
+import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * Counties index — /counties
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
 export const revalidate = 86400;
 
 export default async function CountiesPage() {
-  const db = createClient();
+  const db = createPublicClient();
   const asOf = await dataAsOf();
   const counties = await getCountiesWithCounts(db);
 

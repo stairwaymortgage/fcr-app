@@ -9,7 +9,7 @@ import {
   LICENSE_TYPE_COUNT,
   contractorCountLabel,
 } from "@/lib/registry-stats";
-import { createClient } from "@/lib/supabase/server";
+import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * Homepage — /
@@ -23,11 +23,12 @@ import { createClient } from "@/lib/supabase/server";
  *   - Server Component. No "use client" anywhere on this page or below it.
  *     Both search inputs are plain GET forms, the sticky header is CSS, and
  *     every hover state is a CSS transition. Nothing needs a hydration bundle.
- *   - Every query goes through lib/supabase/server.ts — the ANON key with RLS
- *     enforced. NOT the admin client. Everything here is public directory data
- *     covered by the "public read contractors" and "public read counties" /
- *     "cities" / "license_types" policies; verified 2026-07-30 that anon reads
- *     contractors and is blocked from leads and claims.
+ *   - Every query goes through lib/supabase/public.ts — the ANON key with RLS
+ *     enforced, and no cookie dependency, so the route can stay static. NOT the
+ *     admin client. Everything here is public directory data covered by the
+ *     "public read contractors" and "public read counties" / "cities" /
+ *     "license_types" policies; verified 2026-07-30 that anon reads contractors
+ *     and is blocked from leads and claims.
  *   - Queries are issued together in one Promise.all rather than awaited in
  *     sequence, so the page costs roughly one round trip's latency rather than
  *     the sum of all twenty.
@@ -37,21 +38,16 @@ import { createClient } from "@/lib/supabase/server";
  * Revalidate daily — DBPR publishes weekly, so anything shorter re-queries data
  * that cannot have changed.
  *
- * ⚠ THIS CURRENTLY HAS NO EFFECT. `next build` reports / as ƒ (Dynamic), not
- * ○ (Static): lib/supabase/server.ts calls cookies(), and reading cookies opts
- * the whole route out of static rendering, which takes `revalidate` with it.
- * Every visit therefore re-runs all twenty queries below — measured at ~1.25s
- * per request against the live project, against a §09 LCP budget of 2.0s.
+ * ✅ THIS IS NOW LIVE. It had no effect until 2026-08-07: `next build` reported
+ * / as ƒ (Dynamic) because lib/supabase/server.ts calls cookies(), and reading
+ * cookies opts a whole route out of static rendering — taking `revalidate` with
+ * it. Every visit re-ran all twenty queries below.
  *
- * The declaration is left in place because it is the correct intent and becomes
- * live the moment the cookie dependency goes; it is not load-bearing today.
- *
- * The fix is a decision about the client layer, not about this page: these
- * queries are public aggregates with no per-user component, so the session
- * cookie buys them nothing. Either read them through a cookie-free anon client
- * wrapped in unstable_cache, or hoist them into a route that can stay static.
- * Flagged for review rather than resolved here, because lib/supabase/server.ts
- * is the agreed path for read queries and changing that is not this task's call.
+ * The fix was the client layer, exactly as this note predicted: these queries
+ * are public aggregates with no per-user component, so the session cookie bought
+ * them nothing. They now go through lib/supabase/public.ts, which reads no
+ * cookies, and dataAsOf() was switched with them — it is called by Header and
+ * Footer and would otherwise have dragged the route back to dynamic on its own.
  */
 export const revalidate = 86400;
 
@@ -97,7 +93,7 @@ const FEATURED_TYPE_CODES = [
 /** How many rows the Recently Added list shows. */
 const RECENT_LIMIT = 6;
 
-type Db = ReturnType<typeof createClient>;
+type Db = ReturnType<typeof createPublicClient>;
 
 /**
  * Contractors in one county, counted live.
@@ -110,8 +106,9 @@ type Db = ReturnType<typeof createClient>;
  * in scope for this task.
  *
  * They run concurrently, so twelve counts cost about one count's latency rather
- * than twelve. They are NOT currently amortised by `revalidate` — see the note
- * on that export; today they run on every request.
+ * than twelve. As of 2026-08-07 they ARE amortised by `revalidate` — the route
+ * renders statically and revalidates daily, so these run once a day rather than
+ * once a visit.
  *
  * This does NOT scale to /counties, which needs all 67. That page should get a
  * denormalized reference_counties.contractor_count, backfilled like the cities
@@ -770,7 +767,7 @@ function ContractorCta() {
  * ========================================================================== */
 
 export default async function Home() {
-  const db = createClient();
+  const db = createPublicClient();
 
   // One await, not three. Each of these fans out into its own concurrent count
   // queries, so the whole page costs roughly the slowest single query rather

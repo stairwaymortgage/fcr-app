@@ -9,13 +9,13 @@ import Header from "@/components/Header";
 import {
   getCitiesInCounty,
   getContractorPage,
-  getCountyBySlug,
   getCountyNameMap,
   getTypeCountsInCounty,
   getTypeNameMap,
   getTypesWithCounts,
   parsePage,
 } from "@/lib/browse";
+import { getCountyBySlug } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
@@ -74,29 +74,48 @@ export default async function CountyPage({
   // to the query straight from the URL.
   const rawType = (searchParams.type ?? "").toUpperCase().replace(/[^A-Z]/g, "");
 
-  const [allTypes, countyNames, typeNames, cities] = await Promise.all([
+  const [allTypes, countyNames, typeNames, cities, typeCounts] = await Promise.all([
     getTypesWithCounts(db),
     getCountyNameMap(db),
     getTypeNameMap(db),
     getCitiesInCounty(db, county.county_code),
+    // One RPC for all 29 counts. Moved into this batch because the list query
+    // below now depends on its result for the total.
+    getTypeCountsInCounty(db, county.county_code),
   ]);
 
   const activeType = allTypes.some((t) => t.type_code === rawType) ? rawType : "";
 
-  const [result, typeCounts] = await Promise.all([
-    getContractorPage(
-      db,
-      activeType
-        ? { county_code: county.county_code, license_type: activeType }
-        : { county_code: county.county_code },
-      page,
-    ),
-    getTypeCountsInCounty(
-      db,
-      county.county_code,
-      allTypes.filter((t) => t.count > 0).map((t) => t.type_code),
-    ),
-  ]);
+  /**
+   * THE TOTAL IS NOT COUNTED AGAIN — both values are already in hand.
+   *
+   * Unfiltered, it is reference_counties.contractor_count, maintained by the
+   * importer. Filtered, it is the entry the RPC above already returned for that
+   * licence type. Asking Postgres to count 26,632 rows a second time to learn a
+   * number we are holding cost 122 ms per request.
+   *
+   * ⚠ THE STORED COUNT CAN LAG. reference_counties.contractor_count is derived
+   * at import and repaired by hand; /admin/sync has a drift check for exactly
+   * this. The city index page already accepts the same trade and says so. If it
+   * is ever wrong the page shows a stale total above an accurate list, which is
+   * the same failure mode /cities has had all along — visible, bounded, and
+   * cheaper than the alternative on every request forever.
+   *
+   * undefined (not 0) when neither is known, so getContractorPage falls back to
+   * counting rather than confidently rendering "0 contractor records".
+   */
+  const knownTotal = activeType
+    ? typeCounts.get(activeType)
+    : (county.contractor_count ?? undefined);
+
+  const result = await getContractorPage(
+    db,
+    activeType
+      ? { county_code: county.county_code, license_type: activeType }
+      : { county_code: county.county_code },
+    page,
+    knownTotal,
+  );
 
   const hrefFor = (p: number) => {
     const q = new URLSearchParams();

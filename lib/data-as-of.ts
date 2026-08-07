@@ -2,7 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
-import { createClient } from "@/lib/supabase/server";
+import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * "Data as of …" — the date every public page shows for the registry.
@@ -82,19 +82,62 @@ function format(iso: string): string {
  *
  * Ordered-and-limited rather than an aggregate: PostgREST has no max(), and
  * last_dbpr_sync_at is NOT NULL on all 266,305 rows, so the first row of a
- * descending sort is the maximum. nullsFirst:false is belt-and-braces for the
- * day that column becomes nullable.
+ * descending sort is the maximum.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ DO NOT ADD nullsFirst: false BACK. IT COST 1,660 ms ON EVERY PAGE.
+ *
+ * It was here until 2026-08-07 as "belt-and-braces for the day that column
+ * becomes nullable". It was the single largest component of TTFB across the
+ * entire site — every route, including all 266,305 profiles and /search, because
+ * Header and Footer both call this.
+ *
+ * WHY IT IS SO EXPENSIVE. idx_contractors_last_sync is a default btree, which is
+ * ASC NULLS LAST; walked backwards that is DESC NULLS FIRST. So `DESC NULLS
+ * LAST` does not match the index ordering in either direction, and Postgres
+ * cannot walk-and-stop — it scans all 266,305 rows and sorts them to return one.
+ * Measured on the live table:
+ *
+ *   ORDER BY last_dbpr_sync_at DESC NULLS LAST LIMIT 1
+ *     Gather Merge -> Sort -> Parallel Index Only Scan, Heap Fetches: 196191
+ *     Execution Time: 1660.882 ms
+ *
+ *   ORDER BY last_dbpr_sync_at DESC LIMIT 1            <- what ships now
+ *     Index Only Scan Backward, Heap Fetches: 1
+ *     Execution Time: 0.823 ms
+ *
+ * A 2,000x difference from one parameter. And the guard was never doing
+ * anything: the column is NOT NULL, verified against information_schema.
+ *
+ * IF IT EVER DOES BECOME NULLABLE, this needs `.not("last_dbpr_sync_at", "is",
+ * null)` — a filter, which the index can serve — NOT a nulls-ordering hint.
+ * ═══════════════════════════════════════════════════════════════════════════
  *
  * This is a PUBLIC read — "public read contractors" serves it to anon — so no
  * elevated client is involved and no session is required.
  */
 export const dataAsOf = cache(async (): Promise<string> => {
   try {
-    const db = createClient();
+    /**
+     * THE COOKIE-FREE CLIENT, AND THAT IS WHAT MAKES ISR POSSIBLE AT ALL.
+     *
+     * Header and Footer call this, so it runs on every route. While it used
+     * lib/supabase/server.ts it read cookies, and reading cookies opts a route
+     * into dynamic rendering — which is why six listing routes carried
+     * `export const revalidate = 86400` and every one of them still built as ƒ.
+     * Switching the pages alone would not have helped; this function would have
+     * dragged them back.
+     *
+     * Safe because the value is identical for every visitor: the newest
+     * last_dbpr_sync_at in a world-readable table. Nothing here depends on who
+     * is asking. See lib/supabase/public.ts for when that reasoning does NOT
+     * hold.
+     */
+    const db = createPublicClient();
     const { data, error } = await db
       .from("contractors")
       .select("last_dbpr_sync_at")
-      .order("last_dbpr_sync_at", { ascending: false, nullsFirst: false })
+      .order("last_dbpr_sync_at", { ascending: false })
       .limit(1);
 
     if (error) {
@@ -107,18 +150,19 @@ export const dataAsOf = cache(async (): Promise<string> => {
     /**
      * ⚠ NEXT'S CONTROL-FLOW ERRORS MUST BE RE-THROWN, NOT SWALLOWED.
      *
-     * cookies() inside createClient() throws a DYNAMIC_SERVER_USAGE error
-     * during static generation. That is not a fault — it is how Next signals
-     * "this route is dynamic", and it is meant to propagate so the route gets
-     * marked ƒ instead of ○.
+     * ⚠ THE ORIGINAL REASON FOR THIS GUARD IS GONE AS OF 2026-08-07, AND THE
+     * GUARD STAYS. It was here because cookies() inside createClient() throws
+     * DYNAMIC_SERVER_USAGE during static generation — Next's way of signalling
+     * "this route is dynamic" — and an earlier version of this catch treated
+     * that as a database failure, which would have baked the fallback date
+     * permanently into any route whose only dynamic dependency was this
+     * function.
      *
-     * The first version of this catch treated it as a database failure and
-     * returned FALLBACK, which printed "[data-as-of] unavailable" for every
-     * route on every build. Nothing user-visible broke, because every route
-     * here reads cookies elsewhere too and was marked dynamic anyway — but a
-     * route whose ONLY dynamic dependency was this function would have been
-     * rendered STATIC with the fallback date baked into it permanently. That is
-     * the exact failure this module exists to remove.
+     * This function no longer reads cookies (see createPublicClient above), so
+     * that specific throw can no longer originate here. The digest re-throw is
+     * kept regardless: notFound() and redirect() use the same mechanism, a
+     * future caller may reintroduce a dynamic dependency, and a catch-all that
+     * swallows Next's control flow is a trap whichever way it is reached.
      *
      * redirect() and notFound() use the same mechanism, so the digest check
      * covers them: neither is thrown from here today, and neither should ever
@@ -127,7 +171,7 @@ export const dataAsOf = cache(async (): Promise<string> => {
     const digest = (err as { digest?: unknown } | null)?.digest;
     if (typeof digest === "string") throw err;
 
-    // A genuine failure: createClient() throws when the env vars are missing,
+    // A genuine failure: createPublicClient() throws when the env vars are missing,
     // which is a build or deploy misconfiguration rather than a request-time
     // fault. The chrome should still render so the page's real error is visible.
     console.error("[data-as-of] unavailable", err);

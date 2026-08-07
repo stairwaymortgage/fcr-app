@@ -29,6 +29,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { getContractorPage } from "../lib/browse.ts";
 import { parseQuery, searchContractors } from "../lib/search.ts";
 import { TEST_ROW_LIKE, TEST_ROW_PREFIX } from "../lib/test-rows.ts";
 
@@ -182,6 +183,56 @@ try {
     .not("dbpr_sync_key", "like", TEST_ROW_LIKE)
     .eq("dbpr_sync_key", probeKey);
   ok("the sitemap predicate excludes it", inSitemap === 0, `${inSitemap} row(s)`);
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   * THE BROWSE PATH, WHICH IS THE ONE THAT WENT BEHIND A CACHE ON 2026-08-07.
+   *
+   * /counties, /cities, /types and / now render statically with a 24-hour
+   * revalidate. That raised a specific question worth answering with a test
+   * rather than an argument: does the ZZTEST exclusion survive caching?
+   *
+   * It does, and the reason is structural — excludeTestRows() is applied inside
+   * getContractorPage, i.e. in the DATA layer, not in the route. A cached page
+   * is a snapshot of a render that already had the filter applied, so a
+   * synthetic row cannot appear in a cached listing unless it was absent from
+   * the filter at render time. Caching a filtered result cannot unfilter it.
+   *
+   * WHAT WOULD BREAK IT: moving the exclusion up into a route file, so that
+   * some other caller of getContractorPage renders unfiltered and its output
+   * gets cached. This assertion calls the shared function directly, which is
+   * what every listing route calls, so that regression fails here.
+   *
+   * The probe row carries county_code '13' so it lands in the same filter the
+   * county listing uses.
+   * ═══════════════════════════════════════════════════════════════════════
+   */
+  await admin.from("contractors").update({ county_code: "13" }).eq("dbpr_sync_key", probeKey);
+
+  const browsed = await getContractorPage(admin, { county_code: "13" }, 1);
+  const leaked = browsed.rows.some((r) => r.dbpr_sync_key === probeKey);
+  ok("getContractorPage excludes it from a county listing", !leaked && !browsed.failed,
+     browsed.failed ? "query FAILED — assertion is vacuous" : `${browsed.rows.length} rows checked`);
+
+  // Control: the row really is in that county, so the assertion above had
+  // something to exclude. Without this it passes just as happily on a typo.
+  const { count: inCounty } = await admin.from("contractors")
+    .select("dbpr_sync_key", { count: "exact", head: true })
+    .eq("dbpr_sync_key", probeKey).eq("county_code", "13");
+  ok("control: the probe really is in that county", inCounty === 1, `${inCounty} row(s)`);
+
+  // And the RPC behind the county filter panel must agree with the listing —
+  // if they drift, a county page shows a count above a shorter list.
+  const { data: rpcRows, error: rpcErr } = await admin.rpc("county_type_counts", {
+    p_county_code: "13",
+  });
+  const rpcTotal = (rpcRows ?? []).reduce((sum, r) => sum + Number(r.n), 0);
+  const { count: directTotal } = await admin.from("contractors")
+    .select("dbpr_sync_key", { count: "exact", head: true })
+    .eq("county_code", "13").not("dbpr_sync_key", "like", TEST_ROW_LIKE);
+  ok("county_type_counts excludes synthetic rows too",
+     !rpcErr && rpcTotal === directTotal,
+     rpcErr ? rpcErr.message : `rpc ${rpcTotal} vs direct ${directTotal}`);
 } finally {
   await admin.from("contractors").delete().eq("dbpr_sync_key", probeKey);
 }

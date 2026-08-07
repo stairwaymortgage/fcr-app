@@ -7,13 +7,13 @@ import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import {
-  getCityBySlug,
   getContractorPage,
   getCountyMeta,
   getCountyNameMap,
   getTypeNameMap,
   parsePage,
 } from "@/lib/browse";
+import { getCityBySlug } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";

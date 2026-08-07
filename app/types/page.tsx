@@ -8,7 +8,7 @@ import { getTypesWithCounts } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { LICENSE_TYPE_COUNT } from "@/lib/registry-stats";
-import { createClient } from "@/lib/supabase/server";
+import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * Licence types index — /types
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
 export const revalidate = 86400;
 
 export default async function TypesPage() {
-  const db = createClient();
+  const db = createPublicClient();
   const asOf = await dataAsOf();
   const types = await getTypesWithCounts(db);
 

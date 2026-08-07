@@ -889,6 +889,51 @@ try {
    * `node scripts/verify-counts.mjs` to confirm. Automating it from here needs
    * a decision about running SQL from Node that has not been taken.
    */
+  /**
+   * BUST THE CACHED LISTING PAGES.
+   *
+   * /, /counties, /cities and /types render statically with a 24-hour
+   * revalidate as of 2026-08-07. The import just moved every number on them, so
+   * without this the site advertises last week's counts for up to a day after
+   * the run that replaced them.
+   *
+   * ⚠ BEST EFFORT, AND DELIBERATELY CANNOT FAIL THE IMPORT. The data is already
+   * committed and sync_runs is already closed 'success' by this point. A site
+   * that is up-to-date but serving a stale page for a few hours is a far smaller
+   * problem than an import reported as failed because a cache ping did not land
+   * — someone would re-run a two-hour job over it.
+   *
+   * Skipped quietly when the two variables are absent, which is the normal state
+   * for a local run against a dev database: there is no deployment to revalidate.
+   */
+  const revalidateBase = process.env.NEXT_PUBLIC_SITE_URL;
+  const revalidateSecret = process.env.CRON_SECRET;
+  if (revalidateBase && revalidateSecret) {
+    const url = `${revalidateBase.replace(/\/+$/, "")}/api/revalidate-listings`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${revalidateSecret}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      // A 404 here is the endpoint refusing the secret, not a missing route —
+      // it answers 404 on a bad secret by design. Named, because "404" would
+      // otherwise read as "not deployed yet".
+      console.log(
+        res.ok
+          ? "listing pages revalidated"
+          : `listing revalidation refused (HTTP ${res.status}` +
+            `${res.status === 404 ? " — wrong or missing CRON_SECRET?" : ""})`,
+      );
+    } catch (err) {
+      console.warn(`listing revalidation failed: ${String(err).slice(0, 200)}`);
+    }
+  } else {
+    console.log(
+      "listing revalidation skipped (NEXT_PUBLIC_SITE_URL / CRON_SECRET not set)",
+    );
+  }
+
   console.log(
     "\nNEXT: run db/migrations/20260805_reference_counts_repair.sql, then\n" +
     "      node scripts/verify-counts.mjs",
