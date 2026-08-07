@@ -2,6 +2,7 @@ import "server-only";
 
 import { absoluteUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
+import { TEST_ROW_LIKE, excludeTestRows } from "@/lib/test-rows";
 
 /**
  * Sitemap generation — 266,305 profiles plus the browse and content pages.
@@ -117,10 +118,19 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 /** How many contractor rows there are, and therefore how many child files. */
 export async function contractorSitemapCount(): Promise<number> {
   const db = createClient();
-  const { count, error } = await db
-    .from("contractors")
-    .select("dbpr_sync_key", { count: "exact", head: true })
-    .not("slug", "is", null);
+  /**
+   * ⚠ THIS PREDICATE MUST MATCH contractorSitemapChunk's EXACTLY. The count
+   * decides how many child files the index advertises and the chunk query fills
+   * them; if one excludes a row the other includes, the last chunk either 404s
+   * or silently drops URLs. Both carry .not(slug is null) and both exclude
+   * synthetic rows — change one, change the other.
+   */
+  const { count, error } = await excludeTestRows(
+    db
+      .from("contractors")
+      .select("dbpr_sync_key", { count: "exact", head: true })
+      .not("slug", "is", null),
+  );
   if (error) throw new Error(`sitemap count: ${error.message}`);
   return Math.max(1, Math.ceil((count ?? 0) / URLS_PER_SITEMAP));
 }
@@ -184,9 +194,11 @@ export async function contractorSitemap(chunk: number): Promise<string | null> {
 
   const pages = await mapLimit(offsets, CONCURRENCY, async (from) => {
     const { data, error } = await db
+      // Predicate mirrors contractorSitemapCount — see the note there.
       .from("contractors")
       .select("slug")
       .not("slug", "is", null)
+      .not("dbpr_sync_key", "like", TEST_ROW_LIKE)
       .order("slug", { ascending: true })
       .range(from, from + DB_PAGE - 1);
     if (error) throw new Error(`sitemap chunk ${chunk} at ${from}: ${error.message}`);

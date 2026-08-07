@@ -31,6 +31,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
+
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
     .split("\n")
@@ -72,7 +74,7 @@ async function mkUser(tag) {
 
 /** A claimed profile with custom content, a logo object, and an approved claim. */
 async function mkClaimedProfile(tag, owner) {
-  const key = `TESTREL-${tag}-${randomUUID().slice(0, 8)}`;
+  const key = `${TEST_ROW_PREFIX}REL_${tag}_${randomUUID().slice(0, 8)}`;
   const slug = `testrel-${tag.toLowerCase()}-${randomUUID().slice(0, 8)}`;
   const { error } = await admin.from("contractors").insert({
     dbpr_sync_key: key,

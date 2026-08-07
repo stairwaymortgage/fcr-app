@@ -1,4 +1,18 @@
 import type { createClient } from "@/lib/supabase/server";
+/**
+ * ⚠ RELATIVE, NOT "@/lib/test-rows", AND IT HAS TO BE.
+ *
+ * This module is imported at RUNTIME by scripts/verify-test-row-isolation.mjs
+ * under `node --experimental-strip-types`, which resolves real specifiers and
+ * knows nothing about tsconfig path aliases. The existing `@/` import above
+ * survives only because `import type` is erased before node ever sees it; a
+ * value import on the same path throws ERR_MODULE_NOT_FOUND and takes the whole
+ * suite with it.
+ *
+ * Any future VALUE import added to this file must be relative for the same
+ * reason. Same applies to lib/browse.ts.
+ */
+import { excludeTestRows } from "./test-rows.ts";
 
 /**
  * Registry search — query parsing and the four data reads behind /search.
@@ -197,11 +211,13 @@ export async function searchContractors(
   }
 
   if (parsed.licenseNumber) {
-    const exact = await db
-      .from("contractors")
-      .select(RESULT_COLUMNS, { count: "exact" })
-      .eq("license_number", parsed.licenseNumber)
-      .limit(SEARCH_LIMIT);
+    // Both branches exclude synthetic verify-suite rows. See lib/test-rows.ts.
+    const exact = await excludeTestRows(
+      db
+        .from("contractors")
+        .select(RESULT_COLUMNS, { count: "exact" })
+        .eq("license_number", parsed.licenseNumber),
+    ).limit(SEARCH_LIMIT);
 
     if (!exact.error && (exact.count ?? 0) > 0) {
       return {
@@ -216,7 +232,9 @@ export async function searchContractors(
     // surfaces there.
   }
 
-  let query = db.from("contractors").select(RESULT_COLUMNS, { count: "exact" });
+  let query = excludeTestRows(
+    db.from("contractors").select(RESULT_COLUMNS, { count: "exact" }),
+  );
   for (const token of parsed.tokens) {
     query = query.or(orFilterFor(token));
   }

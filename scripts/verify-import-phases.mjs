@@ -34,6 +34,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
+
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
     .split("\n")
@@ -64,7 +66,7 @@ const RETRYABLE = new Set([
 ]);
 
 const TAG = randomUUID().slice(0, 8);
-const key = (i) => `VERIFYPHASE-${TAG}-${String(i).padStart(6, "0")}`;
+const key = (i) => `${TEST_ROW_PREFIX}PHASE_${TAG}_${String(i).padStart(6, "0")}`;
 
 /** A contractor row shaped like the importer's transform() output. */
 const mkRecord = (i, businessName) => ({
@@ -128,7 +130,7 @@ try {
     const { count } = await db
       .from("contractors")
       .select("dbpr_sync_key", { count: "exact", head: true })
-      .like("dbpr_sync_key", `VERIFYPHASE-${TAG}-%`);
+      .like("dbpr_sync_key", `${TEST_ROW_PREFIX}PHASE_${TAG}_%`);
     ok("every row is in the table", count === N, `${count}/${N}`);
   }
 
@@ -159,7 +161,7 @@ try {
     const { count: movedCount } = await db
       .from("contractors")
       .select("dbpr_sync_key", { count: "exact", head: true })
-      .like("dbpr_sync_key", `VERIFYPHASE-${TAG}-%`)
+      .like("dbpr_sync_key", `${TEST_ROW_PREFIX}PHASE_${TAG}_%`)
       .eq("last_dbpr_sync_at", stampB);
     ok("exactly the touched rows carry the new stamp", movedCount === N / 2,
        `${movedCount}/${N / 2}`);
@@ -167,7 +169,7 @@ try {
     const { count: stillOld } = await db
       .from("contractors")
       .select("dbpr_sync_key", { count: "exact", head: true })
-      .like("dbpr_sync_key", `VERIFYPHASE-${TAG}-%`)
+      .like("dbpr_sync_key", `${TEST_ROW_PREFIX}PHASE_${TAG}_%`)
       .eq("last_dbpr_sync_at", stampA);
     ok("the untouched rows kept the OLD stamp — no collateral write",
        stillOld === N / 2, `${stillOld}/${N / 2}`);
@@ -234,7 +236,7 @@ try {
     const { count: stale } = await db
       .from("contractors")
       .select("dbpr_sync_key", { count: "exact", head: true })
-      .like("dbpr_sync_key", `VERIFYPHASE-${TAG}-%`)
+      .like("dbpr_sync_key", `${TEST_ROW_PREFIX}PHASE_${TAG}_%`)
       .lt("last_dbpr_sync_at", runStamp);
     ok("NO row from the extract is left with a pre-run stamp", stale === 0,
        `${stale} would be miscounted as orphans`);
@@ -287,7 +289,7 @@ try {
   const { error } = await db
     .from("contractors")
     .delete()
-    .like("dbpr_sync_key", `VERIFYPHASE-${TAG}-%`);
+    .like("dbpr_sync_key", `${TEST_ROW_PREFIX}PHASE_${TAG}_%`);
   console.log(error ? `  ****CLEANUP FAILED: ${error.message}` : `  removed ${N} test rows`);
 }
 process.exit(fail === 0 ? 0 : 1);

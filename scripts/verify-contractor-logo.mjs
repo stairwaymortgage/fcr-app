@@ -33,6 +33,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
+
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
     .split("\n")
@@ -77,7 +79,7 @@ async function mkUser(tag) {
 }
 
 async function mkContractor(tag, ownerId) {
-  const key = `TESTLOGO-${tag}-${randomUUID().slice(0, 8)}`;
+  const key = `${TEST_ROW_PREFIX}LOGO_${tag}_${randomUUID().slice(0, 8)}`;
   const slug = `testlogo-${tag.toLowerCase()}-${randomUUID().slice(0, 8)}`;
   const { error } = await admin.from("contractors").insert({
     dbpr_sync_key: key,

@@ -1,4 +1,8 @@
 import type { createClient } from "@/lib/supabase/server";
+// Relative, not "@/lib/test-rows" — see the note in lib/search.ts. A value
+// import on an aliased path breaks node's type-stripping loader, which the
+// verify suites use.
+import { excludeTestRows } from "./test-rows.ts";
 
 /**
  * Browse-page reads — /counties, /county/[slug], /cities, /city/[slug],
@@ -99,7 +103,11 @@ export async function getContractorPage(
 ): Promise<ContractorPage> {
   const from = (page - 1) * PAGE_SIZE;
 
-  let query = db.from("contractors").select(LIST_COLUMNS, { count: "exact" });
+  // Synthetic verify-suite rows never appear in a browse list. See
+  // lib/test-rows.ts for why the read paths carry this and not just cleanup.
+  let query = excludeTestRows(
+    db.from("contractors").select(LIST_COLUMNS, { count: "exact" }),
+  );
   for (const [column, value] of Object.entries(filters)) {
     query = query.eq(column, value);
   }

@@ -6,10 +6,18 @@
  * gain is keyed off contractors.claimed_by_user_id, which is a SECOND
  * statement. Run one without the other and the claim looks approved in the
  * table while the contractor sees an unclaimed profile.
+ *
+ * ⚠ SYNTHETIC ROWS ONLY. This script used to select two real contractors and
+ * restore them afterwards — including setting one to 'featured', which on a
+ * crashed run would have put an unpaid real business at the top of every county
+ * and city page. It now builds its own rows (TEST_ROW_PREFIX) and deletes them.
+ * See the header of scripts/verify-admin-claims.mjs for what that cost us.
  */
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
 
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8").split("\n")
@@ -33,13 +41,28 @@ const JPEG = Buffer.from(
 
 const cleanup = { users: [], claims: [], inquiries: [], syncKey: null, otherKeys: [] };
 
+/** A throwaway contractor row. Never a real one — see the header. */
+async function mkContractor(tag) {
+  const key = `${TEST_ROW_PREFIX}APPROVAL_${tag}_${randomUUID().slice(0, 8)}`;
+  const { error } = await admin.from("contractors").insert({
+    dbpr_sync_key: key,
+    license_number: `ZZTESTLIC${tag}`,
+    license_type: "Certified General Contractor",
+    qualifying_agent_name: `Test Agent ${tag}`,
+    business_name: `ZZ Test Contractor ${tag}`,
+    license_status: "Current,Active",
+    city: "Davie",
+    claim_tier: "unclaimed",
+  });
+  if (error) throw new Error(`insert contractor ${tag}: ${error.message}`);
+  return key;
+}
+
 try {
-  const { data: target } = await admin.from("contractors")
-    .select("dbpr_sync_key, slug, business_name, qualifying_agent_name, claimed_by_user_id")
-    .is("claimed_by_user_id", null).limit(1).single();
+  const target = { dbpr_sync_key: await mkContractor("target") };
   cleanup.syncKey = target.dbpr_sync_key;
-  console.log(`\ntarget: ${target.business_name}`);
-  console.log(`qualifying agent on file: ${target.qualifying_agent_name ?? "(none)"}\n`);
+  console.log(`\nsynthetic target: ${target.dbpr_sync_key}`);
+  console.log("no real contractor row is read or written by this suite\n");
 
   const email = `approve-${randomUUID().slice(0, 8)}@example.com`;
   const password = randomUUID();
@@ -125,9 +148,11 @@ try {
     ok("contractor CAN now see their inquiry", (data?.length ?? 0) === 1, data?.[0]?.from_name);
   }
   {
-    const { data: other } = await admin.from("contractors")
-      .select("dbpr_sync_key").neq("dbpr_sync_key", target.dbpr_sync_key)
-      .is("claimed_by_user_id", null).limit(1).single();
+    // A SECOND synthetic row, not a real neighbour. The assertion is "the
+    // claimant cannot edit a profile that is not theirs", which does not care
+    // whether the other row is real — and using a real one meant an unowned
+    // stranger's listing was one RPC bug away from being edited by this script.
+    const other = { dbpr_sync_key: await mkContractor("other") };
     cleanup.otherKeys.push(other.dbpr_sync_key);
     const { error } = await contractor.rpc("update_own_contractor_profile", {
       p_dbpr_sync_key: other.dbpr_sync_key, p_about: "nope",
@@ -327,23 +352,18 @@ try {
   console.log("\ncleanup…");
   for (const id of cleanup.claims) await admin.from("claims").delete().eq("id", id);
   for (const id of cleanup.inquiries) await admin.from("inquiries").delete().eq("id", id);
-  if (cleanup.syncKey) {
-    // claim_tier is restored too — the featured test above sets it, and leaving
-    // a real contractor row marked 'featured' would put an unpaid profile at the
-    // top of every county and city page.
-    await admin.from("contractors").update({
-      claimed_by_user_id: null, claimed_at: null, custom_about_text: null,
-      claim_tier: "unclaimed", stripe_subscription_id: null, featured_since: null,
-    }).eq("dbpr_sync_key", cleanup.syncKey);
-  }
-  for (const key of cleanup.otherKeys) {
-    await admin.from("contractors").update({ custom_about_text: null }).eq("dbpr_sync_key", key);
+  // DELETE, not restore-by-UPDATE. The rows are ours. The old restore had to
+  // enumerate six columns and would have silently rotted the moment a seventh
+  // was touched — which is precisely how claim_tier was missed in
+  // verify-admin-claims.mjs and left a real business misrepresented live.
+  for (const key of [cleanup.syncKey, ...cleanup.otherKeys]) {
+    if (key) await admin.from("contractors").delete().eq("dbpr_sync_key", key);
   }
   for (const uid of cleanup.users) {
     const { data: files } = await admin.storage.from("id-photos").list(uid);
     for (const f of files ?? []) await admin.storage.from("id-photos").remove([`${uid}/${f.name}`]);
     await admin.auth.admin.deleteUser(uid);
   }
-  console.log("restored contractor row, removed claims, inquiries, users and photos");
+  console.log("deleted synthetic contractor rows, claims, inquiries, users and photos");
 }
 process.exit(fail === 0 ? 0 : 1);

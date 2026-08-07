@@ -35,6 +35,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
+
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
     .split("\n")
@@ -73,7 +75,7 @@ async function mkUser(tag) {
 
 /** A throwaway contractor row, optionally already claimed by someone. */
 async function mkContractor(tag, ownerId) {
-  const key = `TESTINQ-${tag}-${randomUUID().slice(0, 8)}`;
+  const key = `${TEST_ROW_PREFIX}INQ_${tag}_${randomUUID().slice(0, 8)}`;
   const { error } = await admin.from("contractors").insert({
     dbpr_sync_key: key,
     license_number: `TESTINQ${tag}`,

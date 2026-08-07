@@ -27,6 +27,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
+
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
     .split("\n")
@@ -65,7 +67,7 @@ async function mkUser(tag) {
 
 /** A throwaway contractor row, optionally already claimed by someone. */
 async function mkContractor(tag, ownerId) {
-  const key = `TESTLOCK-${tag}-${randomUUID().slice(0, 8)}`;
+  const key = `${TEST_ROW_PREFIX}LOCK_${tag}_${randomUUID().slice(0, 8)}`;
   const { error } = await admin.from("contractors").insert({
     dbpr_sync_key: key,
     license_number: `TESTLIC${tag}`,
@@ -163,7 +165,7 @@ try {
   {
     const { error } = await A.client
       .from("contractors").insert({
-        dbpr_sync_key: `PLANTED-${randomUUID().slice(0, 8)}`,
+        dbpr_sync_key: `${TEST_ROW_PREFIX}PLANTED_${randomUUID().slice(0, 8)}`,
         license_type: "x", qualifying_agent_name: "x", license_status: "x",
       });
     ok("owner cannot INSERT a contractors row", !!error, error?.message ?? "INSERT ACCEPTED");
@@ -285,7 +287,7 @@ try {
   for (const key of createdKeys) {
     await admin.from("contractors").delete().eq("dbpr_sync_key", key);
   }
-  await admin.from("contractors").delete().like("dbpr_sync_key", "PLANTED-%");
+  await admin.from("contractors").delete().like("dbpr_sync_key", `${TEST_ROW_PREFIX}PLANTED_%`);
   for (const id of createdUsers) await admin.auth.admin.deleteUser(id);
   console.log(`removed ${createdKeys.length} contractor rows and ${createdUsers.length} users`);
 }

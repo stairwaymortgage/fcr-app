@@ -4,10 +4,40 @@
  * The approve/reject buttons call approve_claim / reject_claim rather than
  * issuing UPDATEs, so this exercises those functions directly: the authorisation
  * they enforce, and whether approving really links the profile in one shot.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ THIS SCRIPT USED TO MUTATE REAL CONTRACTORS. IT COST US A LIVE LISTING.
+ *
+ * It selected two real rows —
+ *
+ *   .from("contractors").select(...).is("claimed_by_user_id", null).limit(2)
+ *
+ * — approved a fabricated claim against one, and restored it afterwards. On
+ * 2026-08-07 that left GROSSI (CGC1531481), a real Florida contractor, with
+ * claim_tier = 'claimed' and no owner, rendering publicly in that state.
+ *
+ * TWO SEPARATE BUGS MADE IT POSSIBLE and both are fixed here:
+ *
+ *   1. The cleanup nulled claimed_by_user_id and claimed_at but NOT claim_tier,
+ *      which approve_claim() began setting on 2026-08-03
+ *      (20260803_claim_tier_on_approval.sql). The restore was written before
+ *      that line existed and never caught up.
+ *   2. More fundamentally, "restore afterwards" is not a safety property. The
+ *      cleanup is a `finally`, and a `finally` does not run when the process is
+ *      killed. Any crash between the approval and the restore leaves a real
+ *      business misrepresented on a live site.
+ *
+ * SO IT NOW BUILDS ITS OWN ROWS. mkContractor() inserts throwaway rows keyed
+ * with TEST_ROW_PREFIX, which the public read paths exclude (lib/test-rows.ts),
+ * and cleanup DELETEs them rather than trying to guess them back to a previous
+ * state. A leaked synthetic row is invisible; a half-restored real one is not.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
 
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8").split("\n")
@@ -45,6 +75,29 @@ async function mkUser(tag, isAdminUser = false) {
 
 const cleanup = { users: [], claims: [], keys: [] };
 
+/**
+ * A throwaway contractor row. Never a real one — see the header.
+ *
+ * Deliberately leaves `slug` NULL: /contractor/[slug] looks rows up by slug, so
+ * a synthetic row has no public URL at all even before the read-path filters.
+ */
+async function mkContractor(tag) {
+  const key = `${TEST_ROW_PREFIX}ADMCLAIMS_${tag}_${randomUUID().slice(0, 8)}`;
+  cleanup.keys.push(key);
+  const { error } = await admin.from("contractors").insert({
+    dbpr_sync_key: key,
+    license_number: `ZZTESTLIC${tag}`,
+    license_type: "Certified General Contractor",
+    qualifying_agent_name: `Test Agent ${tag}`,
+    business_name: `ZZ Test Contractor ${tag}`,
+    license_status: "Current,Active",
+    city: "Davie",
+    claim_tier: "unclaimed",
+  });
+  if (error) throw new Error(`insert contractor ${tag}: ${error.message}`);
+  return key;
+}
+
 async function seedClaim(user, syncKey) {
   const claimId = randomUUID();
   cleanup.claims.push(claimId);
@@ -62,12 +115,13 @@ async function seedClaim(user, syncKey) {
 }
 
 try {
-  const { data: targets } = await admin.from("contractors")
-    .select("dbpr_sync_key, business_name, qualifying_agent_name")
-    .is("claimed_by_user_id", null).limit(2);
-  cleanup.keys = targets.map((t) => t.dbpr_sync_key);
-  console.log(`\ntarget: ${targets[0].business_name}`);
-  console.log(`qualifying agent: ${targets[0].qualifying_agent_name ?? "(none)"}\n`);
+  // Two synthetic rows, built here. NOT selected from the live table.
+  const targets = [
+    { dbpr_sync_key: await mkContractor("a") },
+    { dbpr_sync_key: await mkContractor("b") },
+  ];
+  console.log(`\nsynthetic targets: ${targets.map((t) => t.dbpr_sync_key).join(", ")}`);
+  console.log("no real contractor row is read or written by this suite\n");
 
   const jim = await mkUser("jim", true);
   const alice = await mkUser("alice");
@@ -118,12 +172,27 @@ try {
        c.id_photo_expires_at?.slice(0, 10));
   }
   {
-    // The capability the contractor actually gains.
-    const { data } = await alice.client.from("contractors")
-      .update({ custom_about_text: "We plumb things." })
-      .eq("dbpr_sync_key", targets[0].dbpr_sync_key).select("custom_about_text");
-    ok("claimant can now edit the profile", data?.[0]?.custom_about_text === "We plumb things.",
-       data?.[0]?.custom_about_text);
+    /**
+     * The capability the contractor actually gains — THROUGH THE RPC.
+     *
+     * This assertion used to issue a direct UPDATE on contractors, which
+     * 20260803_contractor_profile_lockdown.sql revoked from `authenticated`
+     * along with the "contractor updates own profile" policy. It had been
+     * failing ever since, and the failure was the test asking for the hole back:
+     * a direct UPDATE grant lets a contractor rewrite license_number,
+     * claim_tier, slug and claimed_by_user_id. verify-profile-lockdown.mjs
+     * asserts the direct path STAYS shut; this one asserts the RPC works.
+     */
+    const { error } = await alice.client.rpc("update_own_contractor_profile", {
+      p_dbpr_sync_key: targets[0].dbpr_sync_key,
+      p_about: "We plumb things.",
+    });
+    const { data } = await admin.from("contractors")
+      .select("custom_about_text")
+      .eq("dbpr_sync_key", targets[0].dbpr_sync_key).single();
+    ok("claimant can now edit the profile (via the RPC)",
+       !error && data?.custom_about_text === "We plumb things.",
+       error?.message ?? data?.custom_about_text);
   }
   {
     const { error } = await jim.client.rpc("approve_claim", { p_claim_id: claim1 });
@@ -171,16 +240,23 @@ try {
 } finally {
   console.log("\ncleanup…");
   for (const id of cleanup.claims) await admin.from("claims").delete().eq("id", id);
+  /**
+   * DELETE, not restore-by-UPDATE.
+   *
+   * The old cleanup nulled three columns and tried to put a real row back the
+   * way it found it. That is unfixable in principle — it has to enumerate every
+   * column any code path might have touched, and it silently rots the moment one
+   * is added, which is exactly how claim_tier was missed after
+   * 20260803_claim_tier_on_approval.sql. These rows are ours, so they go.
+   */
   for (const key of cleanup.keys) {
-    await admin.from("contractors").update({
-      claimed_by_user_id: null, claimed_at: null, custom_about_text: null,
-    }).eq("dbpr_sync_key", key);
+    await admin.from("contractors").delete().eq("dbpr_sync_key", key);
   }
   for (const uid of cleanup.users) {
     const { data: files } = await admin.storage.from("id-photos").list(uid);
     for (const f of files ?? []) await admin.storage.from("id-photos").remove([`${uid}/${f.name}`]);
     await admin.auth.admin.deleteUser(uid);
   }
-  console.log("restored contractor rows, removed claims, users and photos");
+  console.log("deleted synthetic contractor rows, claims, users and photos");
 }
 process.exit(fail === 0 ? 0 : 1);

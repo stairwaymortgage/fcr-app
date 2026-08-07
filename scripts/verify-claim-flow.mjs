@@ -10,6 +10,8 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
+
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
     .split("\n")
@@ -57,15 +59,29 @@ const claimIds = [];
 let syncKey;
 
 try {
-  // A real, currently unclaimed contractor.
-  const { data: target } = await admin
-    .from("contractors")
-    .select("dbpr_sync_key, slug, business_name")
-    .is("claimed_by_user_id", null)
-    .limit(1)
-    .single();
-  syncKey = target.dbpr_sync_key;
-  console.log(`\ntarget profile: ${target.business_name} (/${target.slug})\n`);
+  /**
+   * A SYNTHETIC contractor, not a real one.
+   *
+   * This used to pick a live unclaimed row and insert claims against it. The
+   * cleanup only ever removed the claims and users, never the contractors row —
+   * so any assertion that linked ownership would have left a real business
+   * claimed by a deleted test account. See scripts/verify-admin-claims.mjs for
+   * the incident that made this rule.
+   */
+  syncKey = `${TEST_ROW_PREFIX}CLAIMFLOW_${randomUUID().slice(0, 8)}`;
+  const { error: mkErr } = await admin.from("contractors").insert({
+    dbpr_sync_key: syncKey,
+    license_number: "ZZTESTLICFLOW",
+    license_type: "Certified General Contractor",
+    qualifying_agent_name: "Test Agent Flow",
+    business_name: "ZZ Test Contractor Flow",
+    license_status: "Current,Active",
+    city: "Davie",
+    claim_tier: "unclaimed",
+  });
+  if (mkErr) throw new Error(`insert contractor: ${mkErr.message}`);
+  console.log(`\nsynthetic target profile: ${syncKey}`);
+  console.log("no real contractor row is read or written by this suite\n");
 
   const A = await mkUser("a");
   const B = await mkUser("b");
@@ -218,6 +234,11 @@ try {
     for (const f of files ?? []) await admin.storage.from("id-photos").remove([`${uid}/${f.name}`]);
     await admin.auth.admin.deleteUser(uid);
   }
-  console.log(`removed ${claimIds.length} claims and ${users.length} users`);
+  // The synthetic contractor goes too. It did not before, because the row was
+  // borrowed rather than created and there was nothing to delete.
+  if (syncKey) await admin.from("contractors").delete().eq("dbpr_sync_key", syncKey);
+  console.log(
+    `removed ${claimIds.length} claims, ${users.length} users and the synthetic contractor`,
+  );
 }
 process.exit(fail === 0 ? 0 : 1);

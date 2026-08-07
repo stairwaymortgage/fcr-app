@@ -32,6 +32,7 @@ import { randomUUID } from "node:crypto";
 
 import { ID_PHOTO_BUCKET } from "../lib/claims.ts";
 import { purgeExpiredIdPhotos } from "../lib/purge-id-photos.ts";
+import { TEST_ROW_PREFIX } from "../lib/test-rows.ts";
 
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
@@ -63,7 +64,7 @@ const JPEG = Buffer.from(
 );
 
 const DAY = 86_400_000;
-const cleanup = { users: [], claims: [] };
+const cleanup = { users: [], claims: [], keys: [] };
 
 /** Does the object still exist in the bucket? */
 async function photoExists(userId, fileName) {
@@ -104,15 +105,31 @@ try {
    * (contractor_dbpr_sync_key, claimant_user_id) WHERE status = pending, so one
    * user cannot hold two pending claims on the same profile — the index doing
    * exactly its job. The fixtures need four independent claims, so they get four
-   * profiles. Nothing here writes to contractors; they are only referenced.
+   * profiles.
+   *
+   * ⚠ THEY ARE CREATED, NOT BORROWED. This used to select four real unclaimed
+   * contractors, on the reasoning that nothing here writes to that table — only
+   * references it. True, and not enough: the claims it inserts DO reference them,
+   * so a run that died before its cleanup left pending claims against four real
+   * businesses sitting in the live /admin/claims queue for a reviewer to act on.
    */
-  const { data: targets } = await admin
-    .from("contractors")
-    .select("dbpr_sync_key")
-    .is("claimed_by_user_id", null)
-    .limit(4);
-  if ((targets ?? []).length < 4) throw new Error("need 4 unclaimed contractors");
-  const keys = targets.map((t) => t.dbpr_sync_key);
+  const keys = [];
+  for (let i = 0; i < 4; i++) {
+    const key = `${TEST_ROW_PREFIX}PURGE_${i}_${randomUUID().slice(0, 8)}`;
+    const { error } = await admin.from("contractors").insert({
+      dbpr_sync_key: key,
+      license_number: `ZZTESTLICPURGE${i}`,
+      license_type: "Certified General Contractor",
+      qualifying_agent_name: `Test Agent Purge ${i}`,
+      business_name: `ZZ Test Contractor Purge ${i}`,
+      license_status: "Current,Active",
+      city: "Davie",
+      claim_tier: "unclaimed",
+    });
+    if (error) throw new Error(`insert contractor ${i}: ${error.message}`);
+    keys.push(key);
+  }
+  cleanup.keys = keys;
 
   const email = `purge-${randomUUID().slice(0, 8)}@example.com`;
   const { data: u } = await admin.auth.admin.createUser({
@@ -234,6 +251,13 @@ try {
     }
     await admin.auth.admin.deleteUser(uid);
   }
-  console.log(`removed ${cleanup.claims.length} claims, ${cleanup.users.length} user(s) and their photos`);
+  // Claims first, then the contractors they reference — the FK points this way.
+  for (const key of cleanup.keys) {
+    await admin.from("contractors").delete().eq("dbpr_sync_key", key);
+  }
+  console.log(
+    `removed ${cleanup.claims.length} claims, ${cleanup.users.length} user(s), ` +
+    `their photos and ${cleanup.keys.length} synthetic contractors`,
+  );
 }
 process.exit(fail === 0 ? 0 : 1);

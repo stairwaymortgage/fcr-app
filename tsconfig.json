@@ -8,6 +8,18 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    /*
+     * Legal only because "noEmit" above is true — tsc never has to rewrite the
+     * specifier, so a ".ts" import is a compile-time-only detail.
+     *
+     * Needed by exactly two imports: lib/search.ts and lib/browse.ts pull in
+     * lib/test-rows.ts by relative path WITH the extension. Both modules are
+     * loaded at runtime by scripts/verify-test-row-isolation.mjs under
+     * `node --experimental-strip-types`, and node's ESM resolver requires a real
+     * file specifier — it honours neither the "@/*" alias below nor extensionless
+     * resolution. See the note at the top of lib/search.ts.
+     */
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
