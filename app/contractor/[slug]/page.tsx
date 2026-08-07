@@ -28,44 +28,38 @@ import { logoPublicUrl } from "@/lib/logo";
 import { dataAsOf } from "@/lib/data-as-of";
 import { createClient } from "@/lib/supabase/server";
 
-import SubmitButton from "@/components/SubmitButton";
-
-import { submitInquiry } from "./actions";
-
 /**
  * Contractor profile — /contractor/[slug]
  * Source: _handoff/02_mockups_production/01_public_core/contractor_profile_aceca.html
  *
  * Server Component. The page itself carries no "use client".
  *
- * ⚠ IT NO LONGER SHIPS ZERO CLIENT JS, AND THAT WAS A DELIBERATE TRADE MADE ON
- * 2026-08-06. The inquiry form's submit button is a client component so it can
- * show a pending state (components/SubmitButton.tsx). Everything else on the
- * page is still server-rendered.
+ * ⚠ IT SHIPS ZERO CLIENT JS AGAIN, AS OF 2026-08-07. That property was given up
+ * on 2026-08-06 for the inquiry form's pending-state button, and returned when
+ * the inquiry form was removed. What stands in its place is a single <Link> to
+ * the diagnostic, and a link needs no JavaScript.
  *
- * The property that was given up was load-bearing in one argument: Turnstile
- * was deferred on this page partly because a challenge widget would cost the
- * zero-JS property for every visitor. That reasoning is now weaker — the
- * remaining case against Turnstile is that the counters already limit this form
- * to 3 per 10 minutes, which stands on its own. See the foot of ./actions.ts.
+ * The Turnstile argument that depended on this is therefore live again: adding
+ * a challenge widget to this page would cost the zero-JS property for every
+ * visitor. There is no longer a public write path here to protect, so the
+ * question is moot unless one is added back.
  *
- * What it bought: the form could be submitted three times before the first
- * response returned, and each submission was a lead a contractor pays for. The
- * server-side duplicate suppression in ./actions.ts and this button are two
- * halves of the same fix — one stops the row, the other stops the request.
- *
- * READS: lib/supabase/server.ts (anon, RLS). WRITE: ./actions.ts only.
+ * READS: lib/supabase/server.ts (anon, RLS). NO WRITE PATH. ./actions.ts still
+ * exports submitInquiry and is deliberately left in place — the inquiries table,
+ * the /inquiries inbox and its RLS are all intact for the legacy data — but
+ * nothing on this page or anywhere else links to it.
  *
  * TWO DELIBERATE DEPARTURES FROM THE MOCKUP, both flagged rather than silently
  * resolved:
  *
- * 1. THE CONVERSION BANNER IS NOT BUILT. The mockup opens with a large
- *    "Before you sign..." banner linking into the diagnostic flow, and calls it
- *    "the ONE loud element on the page". Build Brief Week 4 Day 5 is
- *    "Banner placement. Add the conversion banner to contractor_profile_aceca,
- *    county/city/type pages, and homepage" — it ships with the diagnostic it
- *    feeds, which does not exist yet. Building it now would mean a prominent
- *    CTA pointing at a 404.
+ * 1. THE MOCKUP'S FULL-WIDTH CONVERSION BANNER IS STILL NOT BUILT, but the
+ *    reason has changed and the old one is no longer true. It used to be "the
+ *    diagnostic does not exist yet, so the CTA would point at a 404". The
+ *    diagnostic exists and this page now links into it — see QuoteCta below,
+ *    which is the sidebar treatment rather than the mockup's large banner
+ *    across the top. What remains unbuilt is the banner's PLACEMENT on the
+ *    county, city, type and homepage templates (Build Brief Week 4 Day 5).
+ *    Those pages still have no route into the diagnostic.
  *
  * 2. THE MOCKUP'S ABOUT PROSE CANNOT BE DERIVED FROM DBPR DATA. It contains
  *    claims like "a level of stability uncommon in an industry where most
@@ -75,9 +69,9 @@ import { submitInquiry } from "./actions";
  *    what the row actually says. When a profile is claimed, the owner's own
  *    custom_about_text renders instead.
  *
- * The inquiry form is an ADDITION — the mockup has no contact form anywhere.
- * Built on request; placed in the sidebar under the licence details, where a
- * visitor who has just verified the licence is most likely to act.
+ * The sidebar CTA sits under the licence details, where the inquiry form used to
+ * be and for the same reason: a visitor who has just verified a licence is the
+ * one most likely to act.
  */
 
 /* ========================================================================== *
@@ -751,162 +745,58 @@ function Faq({
 }
 
 /* ========================================================================== *
- * INQUIRY FORM
+ * QUOTE CTA
  * ========================================================================== */
 
-const ERROR_TEXT: Record<string, string> = {
-  name: "Enter your name (2–100 characters).",
-  email: "Enter a valid email address.",
-  phone: "That phone number doesn’t look right.",
-  message: "Your message must be between 10 and 2,000 characters.",
-  contractor: "We couldn’t match that contractor. Please reload and try again.",
-  spam: "That submission looked automated. Please try again.",
-  // Phrased as "we've received" rather than "you've sent" on purpose: shared
-  // office wifi and mobile carriers put several real people behind one address,
-  // so the person reading this may not be the one who used up the allowance.
-  rate: "We’ve already received several messages from your connection. Please try again later.",
-  failed: "Something went wrong on our side. Please try again in a moment.",
-};
-
 /**
- * Contact form. NOT IN THE MOCKUP — added on request.
+ * "Request a Quote" — what stands where the inquiry form used to.
  *
- * Posts to the Server Action in ./actions.ts, which is the only write path in
- * the public app. The form itself is still server-rendered and validation
- * feedback still comes back through the URL rather than through useFormState —
- * only the submit button is a client component, and only so it can disable
- * itself while the action is in flight.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE INQUIRY FORM WAS REMOVED FROM THIS PAGE ON 2026-08-07.
  *
- * IT STILL WORKS WITHOUT JAVASCRIPT. With JS off the button renders as a plain
- * submit and the form posts normally; what is lost is the pending state, not
- * the ability to send a message. That was the condition for touching this page
- * at all.
+ * It posted to submitInquiry in ./actions.ts and wrote the `inquiries` table.
+ * That action, that table, the /inquiries inbox and its RLS are all still in
+ * place and untouched — the form is simply no longer rendered, so nothing links
+ * to the endpoint any more. Legacy inquiries remain readable by the contractors
+ * who received them; the inbox is read-only history from today.
  *
- * The client-side attributes below (required, maxLength, type="email") are
- * courtesies for real users and are NOT the validation. A server action is a
- * directly callable endpoint, so actions.ts re-checks every field on the
- * server and treats all of this as absent.
+ * WHY IT WENT: the site had two consumer capture paths that did not meet. A
+ * message here reached one unclaimed business's inbox, which they may never
+ * check — 266,305 profiles exist and almost none are claimed — while the
+ * diagnostic reached a concierge who actually calls people back. Sending a
+ * homeowner to the second is better for them and for the business.
+ *
+ * ⚠ THIS CARRIES ?from=<slug>, WHICH IS LOAD-BEARING. It is what puts the
+ * referring business on the lead in GoHighLevel (the "FCR Referring Contractor"
+ * field) and in leads.referring_url. Drop the parameter and the concierge
+ * calling that homeowner has no idea which profile they were looking at.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * NO FORM, SO NO CLIENT JS. This is one <Link>, which is why removing the
+ * inquiry form also returned this page to shipping no client JavaScript — see
+ * the note at the top of the file.
  */
-function InquiryForm({
-  contractor,
-  name,
-  state,
-  errorCodes,
-}: {
-  contractor: ContractorProfile;
-  name: string;
-  state: string | undefined;
-  errorCodes: string[];
-}) {
-  if (state === "sent") {
-    return (
-      <SideBlock title="Message sent">
-        <p className="text-note leading-[1.6] text-gray-700">
-          Your message has been sent to {endSentence(name)} They&rsquo;ll see it the next time
-          they check their inquiries.
-        </p>
-        <p className="mt-3 text-xs leading-[1.6] text-gray-500">
-          This profile is unclaimed, so the business has not yet verified its
-          contact details with us. If you don&rsquo;t hear back, verify the
-          license with DBPR and contact them directly.
-        </p>
-      </SideBlock>
-    );
-  }
-
+function QuoteCta({ name, slug }: { name: string; slug: string }) {
   return (
-    <SideBlock title={`Contact ${name}`}>
-      {errorCodes.length > 0 && (
-        <ul className="mb-4 border-l-[3px] border-status-error bg-status-errorBg px-4 py-3 text-xs leading-[1.55] text-status-error">
-          {errorCodes.map((code) => (
-            <li key={code}>{ERROR_TEXT[code] ?? "Please check your details."}</li>
-          ))}
-        </ul>
-      )}
+    <SideBlock title="Thinking about a project?">
+      <p className="mb-4 text-note leading-[1.6] text-gray-700">
+        Seven quick questions about what you&rsquo;re planning, and an advisor
+        will call you back to walk through your options &mdash; including the
+        ones most homeowners don&rsquo;t know they have before signing with
+        anyone.
+      </p>
 
-      <form action={submitInquiry} className="flex flex-col gap-3">
-        <input type="hidden" name="slug" value={contractor.slug} />
-        <input
-          type="hidden"
-          name="contractor_dbpr_sync_key"
-          value={contractor.dbpr_sync_key}
-        />
+      <Link
+        href={`/diagnostic?from=${encodeURIComponent(slug)}`}
+        className={`inline-block bg-navy px-[18px] py-[11px] font-mono text-[12.5px] font-semibold uppercase tracking-[0.03em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
+      >
+        Request a Quote &rarr;
+      </Link>
 
-        {/* Honeypot. Hidden from people, filled in by naive bots. aria-hidden
-            and tabIndex keep it away from screen readers and keyboard users. */}
-        <div aria-hidden="true" className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
-          <label htmlFor="website">Website</label>
-          <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
-        </div>
-
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-label font-medium uppercase tracking-[0.08em] text-gray-500">
-            Your name
-          </span>
-          <input
-            name="from_name"
-            type="text"
-            required
-            minLength={2}
-            maxLength={100}
-            autoComplete="name"
-            className="border border-gray-300 bg-white px-3 py-2 text-note text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-label font-medium uppercase tracking-[0.08em] text-gray-500">
-            Email
-          </span>
-          <input
-            name="from_email"
-            type="email"
-            required
-            maxLength={254}
-            autoComplete="email"
-            className="border border-gray-300 bg-white px-3 py-2 text-note text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-label font-medium uppercase tracking-[0.08em] text-gray-500">
-            Phone <span className="normal-case tracking-normal">(optional)</span>
-          </span>
-          <input
-            name="from_phone"
-            type="tel"
-            maxLength={32}
-            autoComplete="tel"
-            className="border border-gray-300 bg-white px-3 py-2 text-note text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-label font-medium uppercase tracking-[0.08em] text-gray-500">
-            What do you need done?
-          </span>
-          <textarea
-            name="message"
-            required
-            minLength={10}
-            maxLength={2000}
-            rows={4}
-            className="resize-y border border-gray-300 bg-white px-3 py-2 text-note text-ink focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/10"
-          />
-        </label>
-
-        <SubmitButton
-          pendingLabel="Sending…"
-          className={`mt-1 bg-navy px-4 py-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-paper transition-colors hover:bg-navy-light ${FOCUS_RING_PAPER}`}
-        >
-          Send message
-        </SubmitButton>
-
-        <p className="text-xs leading-[1.5] text-gray-500">
-          Your message goes to this contractor through the registry. We
-          don&rsquo;t sell your details.
-        </p>
-      </form>
+      <p className="mt-3.5 text-xs leading-[1.5] text-gray-500">
+        Free, no obligation, and no credit check. We&rsquo;ll note that you came
+        from {endSentence(name)}
+      </p>
     </SideBlock>
   );
 }
@@ -915,12 +805,16 @@ function InquiryForm({
  * PAGE
  * ========================================================================== */
 
+/**
+ * searchParams is gone from this signature. It existed only to carry the
+ * inquiry form's `?inquiry=sent` / `?inquiry=invalid&e=…` round trip, and that
+ * form was removed on 2026-08-07. The page now reads nothing from the query
+ * string, which is also what lets it go back to being fully static-shaped.
+ */
 export default async function ContractorProfilePage({
   params,
-  searchParams,
 }: {
   params: { slug: string };
-  searchParams: { inquiry?: string; e?: string };
 }) {
   const db = createClient();
   const asOf = await dataAsOf();
@@ -946,10 +840,6 @@ export default async function ContractorProfilePage({
     : formatPersonName(contractor.qualifying_agent_name);
   const typeName = typeNames.get(contractor.license_type)?.type_name ?? null;
   const claimed = isClaimed(contractor);
-  const errorCodes =
-    searchParams.inquiry === "invalid" && searchParams.e
-      ? searchParams.e.split(",").filter((c) => c in ERROR_TEXT)
-      : [];
 
   return (
     <>
@@ -1086,12 +976,7 @@ export default async function ContractorProfilePage({
             </dl>
           </SideBlock>
 
-          <InquiryForm
-            contractor={contractor}
-            name={name}
-            state={searchParams.inquiry}
-            errorCodes={errorCodes}
-          />
+          <QuoteCta name={name} slug={contractor.slug} />
 
           <div className="mb-5 border-l-[3px] border-gold bg-gold-pale px-[18px] py-3.5 text-ui leading-[1.5] text-ink">
             <span className="mb-1.5 block font-mono text-label font-semibold uppercase tracking-[0.1em] text-navy">

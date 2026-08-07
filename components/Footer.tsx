@@ -61,13 +61,47 @@ const FOOTER_COLUMNS = [
       { href: "/complaint", label: "File a Complaint" },
     ],
   },
+  /**
+   * ⚠ THIS COLUMN WAS FOUR LINKS TO ONE DELETED PAGE. Rewritten 2026-08-07.
+   *
+   * All four pointed at /contractors — one at the page, three at anchors on it
+   * (#update, #website, #resources). That page said "Claiming opens soon" and
+   * has been deleted; the URL now 308s to /join.
+   *
+   * The three anchor labels were promises the destination never kept, and two
+   * of them were promises about things that do not exist:
+   *
+   *   "Update Information"    -> is what claiming IS. It was a second label for
+   *                              the same action, on the same page.
+   *   "Get a Website"         -> the $199/mo ranking-website upsell, which is
+   *                              unbuilt and is deliberately gated behind claim
+   *                              approval anyway (see the claim page docblock).
+   *                              A footer link to it sells something we cannot
+   *                              deliver and cannot even show.
+   *   "Contractor Resources"  -> there is no resources section anywhere.
+   *
+   * ⚠ SO THIS COLUMN IS NOW TWO LINKS, NOT FOUR, AND BOTH GO TO /join. That is
+   * a deliberate call by Jim on 2026-08-07, taken over the alternative proposed
+   * here (one /join link plus /featured-terms).
+   *
+   * The two labels name the two things /join actually does, and the page really
+   * does branch on them: "Join the Registry" is the add-my-business path for a
+   * licensee with no record here, "Claim Your Profile" is the take-over path for
+   * one of the 266,305 that already exists. Someone arriving from either label
+   * lands on a page that offers their case first, so the duplication is in the
+   * href, not in what the visitor is promised — which is the distinction the
+   * four anchors got wrong.
+   *
+   * The grid handles a short column fine.
+   *
+   * WHEN THERE IS MORE TO SAY, THIS IS WHERE IT GOES: a real contractor
+   * resources page, or the ranking-website product once it exists.
+   */
   {
     heading: "For Contractors",
     links: [
-      { href: "/contractors", label: "Claim Your Profile" },
-      { href: "/contractors#update", label: "Update Information" },
-      { href: "/contractors#website", label: "Get a Website" },
-      { href: "/contractors#resources", label: "Contractor Resources" },
+      { href: "/join", label: "Join the Registry" },
+      { href: "/join", label: "Claim Your Profile" },
     ],
   },
   {

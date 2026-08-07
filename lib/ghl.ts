@@ -68,6 +68,49 @@ export const GHL_FIELDS = {
   fcr_source: "NAF3nVcw9UX7cQh2rdFv", // contact.fcr_source        TEXT
 } as const;
 
+/**
+ * "FCR Referring Contractor" — contact.fcr_referring_contractor, TEXT.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE ONLY FIELD ID THAT IS NOT HARD-CODED, BECAUSE IT DOES NOT EXIST YET.
+ *
+ * Every id above was re-fetched from the live location. This one cannot be:
+ * the token gets 401 on POST and PUT to /locations/{id}/customFields, so the
+ * field has to be created by hand in the GHL UI first, and creating it is what
+ * mints the id. Hard-coding a placeholder would mean every write addressed a
+ * field that does not exist — the exact failure documented at the top of this
+ * file, which has already happened once.
+ *
+ * So it reads GHL_FIELD_REFERRING_CONTRACTOR from the environment. UNSET IS A
+ * SUPPORTED STATE, not a broken one: the field is skipped, a warning is logged
+ * once per process, and the lead is delivered with everything else intact. A
+ * missing environment variable must never cost a lead.
+ *
+ * TO TURN IT ON: create a TEXT custom field named "FCR Referring Contractor" in
+ * GHL (field key contact.fcr_referring_contractor), copy the generated id, and
+ * set GHL_FIELD_REFERRING_CONTRACTOR in .env.local and in the Vercel project.
+ * No deploy is needed — it is read per call.
+ *
+ * ⚠ RECREATING THE FIELD MINTS A NEW ID and silently breaks these writes until
+ * the variable is updated. Edit it in place; never delete and re-add.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+let referringFieldWarned = false;
+function referringContractorFieldId(): string | null {
+  const id = process.env.GHL_FIELD_REFERRING_CONTRACTOR?.trim();
+  if (id) return id;
+  if (!referringFieldWarned) {
+    referringFieldWarned = true;
+    console.warn(
+      "[ghl] GHL_FIELD_REFERRING_CONTRACTOR is not set. Leads that came from a " +
+        "contractor profile are being delivered WITHOUT the referring contractor " +
+        "field. The value is still recorded in leads.referring_url. Create the " +
+        "TEXT field 'FCR Referring Contractor' in GHL and set its id to enable it.",
+    );
+  }
+  return null;
+}
+
 export const GHL_PIPELINE = {
   id: "U1PrjN4PmMlhahGWMbpg", // "FCR Leads"
   stages: {
@@ -278,6 +321,12 @@ export interface GhlLead {
   smsConsentText: string | null;
   smsConsentTimestamp: string | null;
   referringUrl: string | null;
+  /**
+   * Display name of the contractor whose profile sent this visitor into the
+   * diagnostic, or null. Resolved from the slug by the caller — this module
+   * never queries Postgres.
+   */
+  referringContractor: string | null;
 }
 
 export interface GhlResult {
@@ -392,8 +441,51 @@ export async function pushLeadToGhl(lead: GhlLead): Promise<GhlResult> {
     put(field.id, value);
   }
 
-  // Free-text fields carry their real values — no dropdown to mismatch.
-  put(GHL_FIELDS.fcr_source, lead.referringUrl ?? "diagnostic_flow");
+  /**
+   * Free-text fields carry their real values — no dropdown to mismatch.
+   *
+   * ═══════════════════════════════════════════════════════════════════════════
+   * ⚠ FCR SOURCE IS NOW ALWAYS "diagnostic_flow". IT USED TO BE THE REFERRING
+   * URL WHEN THERE WAS ONE, AND THAT CHANGED ON 2026-08-07.
+   *
+   * The old line was `lead.referringUrl ?? "diagnostic_flow"`, which was
+   * harmless while nothing on the site linked into the diagnostic: referringUrl
+   * was null on essentially every lead, so the field read "diagnostic_flow" and
+   * any GHL automation keyed on that value worked.
+   *
+   * The profile "Request a Quote" CTA inverts that. Every lead that starts on a
+   * contractor profile now arrives with ?from=<slug>, so the old expression
+   * would have written "/contractor/gulf-coast-roofing" into FCR Source for the
+   * majority of leads — silently breaking every automation that branches on
+   * FCR Source = diagnostic_flow, with no error anywhere, on the day the CTA
+   * shipped.
+   *
+   * A source field should say which flow produced the lead. Which contractor
+   * referred it is a different fact and now has its own field below. Nothing is
+   * lost: the referring URL is still written to leads.referring_url in Postgres,
+   * which is where /admin/leads reads it from.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  put(GHL_FIELDS.fcr_source, "diagnostic_flow");
+
+  /**
+   * The referring contractor, when the lead came from a profile and the field
+   * has been created in GHL. Both halves are optional and neither is an error:
+   * most leads have no referrer, and an unset id is the supported "not turned on
+   * yet" state described above.
+   */
+  if (lead.referringContractor) {
+    const fieldId = referringContractorFieldId();
+    if (fieldId) {
+      put(fieldId, lead.referringContractor);
+    } else {
+      unmapped.push(
+        `referring_contractor=${lead.referringContractor} ` +
+          `(GHL_FIELD_REFERRING_CONTRACTOR not set)`,
+      );
+    }
+  }
+
   if (lead.smsConsent) {
     put(GHL_FIELDS.sms_consent_text, lead.smsConsentText);
     put(GHL_FIELDS.consent_timestamp, toDateOnly(lead.smsConsentTimestamp));

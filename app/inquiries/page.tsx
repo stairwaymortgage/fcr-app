@@ -295,6 +295,33 @@ export default async function InquiriesPage({
             </p>
           </div>
 
+          {/*
+            ⚠ THE INBOX IS HISTORY AS OF 2026-08-07 AND SAYS SO.
+
+            The inquiry form was removed from public contractor profiles that
+            day, so nothing new arrives here. The table, this page, the actions
+            and the RLS are all deliberately intact — the messages below are real
+            and still belong to the contractors who received them.
+
+            The notice exists because the alternative is worse than an empty
+            inbox: a contractor who claimed their profile on the strength of
+            "read homeowner inquiries" would otherwise sit in front of a screen
+            that never updates and conclude the product is broken, or that
+            homeowners are not interested. Neither is true.
+          */}
+          <div className="mb-7 border-l-[3px] border-l-gold bg-gray-50 px-5 py-4">
+            <p className="mb-1.5 font-mono text-label font-semibold uppercase tracking-label text-navy">
+              This inbox is now a record, not a feed.
+            </p>
+            <p className="text-note leading-[1.6] text-gray-700">
+              We&rsquo;ve replaced the message box on public profiles with a
+              short questionnaire, and homeowners who complete it are called back
+              by our advisory team instead. Everything you received before that
+              change is still here and still yours &mdash; nothing new will
+              arrive.
+            </p>
+          </div>
+
           {searchParams.e && ERROR_TEXT[searchParams.e] && (
             <p
               role="alert"

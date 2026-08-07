@@ -198,7 +198,7 @@ export default function SourcesPage() {
         If you&rsquo;re a licensed contractor and your profile contains an error
         &mdash; wrong address, misspelled name, wrong license type &mdash; the
         fastest path to a correction is to{" "}
-        <Link href="/contractors">claim your profile</Link>, then contact us.
+        <Link href="/join">claim your profile</Link>, then contact us.
         We&rsquo;ll fix the error within one business day.
       </p>
       <p>

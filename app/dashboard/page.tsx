@@ -111,9 +111,9 @@ export default async function DashboardPage({
             </p>
             <p className="text-note leading-[1.6] text-gray-700">
               Once a profile is verified as yours you can edit your listing,
-              upload a logo, and read homeowner inquiries. Find your business on{" "}
-              <Link href="/search" className="text-navy underline decoration-gold underline-offset-2">
-                the contractor search
+              upload a logo, and publish your own contact details.{" "}
+              <Link href="/join" className="text-navy underline decoration-gold underline-offset-2">
+                Find your business
               </Link>{" "}
               to claim it.
             </p>

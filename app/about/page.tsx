@@ -112,10 +112,11 @@ export default function AboutPage() {
       </p>
       <p>
         This is also not a lead-generation platform that sells contractor contact
-        data to homeowner inquiries. Many directories do that. We don&rsquo;t.
-        Homeowner inquiries through this site go to the specific contractor whose
-        profile they came from &mdash; or, in the case of homeowners who ask for
-        advisory help, to our internal team.
+        data. Many directories do that. We don&rsquo;t &mdash; the contact
+        details on a profile are the public DBPR record, or what a verified owner
+        chose to publish. Homeowners who work through our questionnaire are
+        called back by our own advisory team, and we say so on that page before
+        anyone answers a question.
       </p>
 
       <h2>Why we built it the way we did</h2>
@@ -165,16 +166,13 @@ export default function AboutPage() {
         Any public-records aggregator in any state has the same starting condition.
         The way to make your profile work for you is to claim it. It&rsquo;s free.
         It takes five minutes. Once claimed, you control what visitors see &mdash;
-        your photo, your website, your About text &mdash; and you start receiving
-        any inquiries that come through your profile.
+        your photo, your website, your About text, your own contact details
+        &mdash; and your listing carries a verified badge instead of reading as a
+        bare public record.
       </p>
       <p>
-        There&rsquo;s a{" "}
-        <Link href="/contractors">
-          separate page that walks through what claiming gets you
-        </Link>{" "}
-        and how it works. Or you can{" "}
-        <Link href="/search">search for your business right now</Link>.
+        <Link href="/join">Find your business and claim it</Link> &mdash; or, if
+        it isn&rsquo;t here at all, ask us to add it from the same page.
       </p>
     </ContentPageLayout>
   );

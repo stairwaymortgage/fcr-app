@@ -203,7 +203,7 @@ export default function ContactPage() {
         To claim your profile, find yourself in the registry and use the
         &ldquo;Claim this profile&rdquo; link on your own page — claiming
         requires proving the licence is yours, so it cannot be done by email.{" "}
-        <Link href="/contractors">The contractors page</Link> explains what the
+        <Link href="/join">The join page</Link> explains what the
         process asks for.
       </p>
 

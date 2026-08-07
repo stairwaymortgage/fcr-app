@@ -47,7 +47,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * verification limits underneath as a backstop, and because a login nobody can
  * complete is itself an outage. If that judgement is ever revisited, revisit it
  * at the call site in app/login/actions.ts — not by changing this default for
- * all six endpoints at once.
+ * every endpoint at once.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
@@ -181,6 +181,29 @@ export const LIMITS = {
    */
   DIAGNOSTIC_IP_BURST: { bucket: "diagnostic:ip", limit: 2, windowSeconds: 600 },
   DIAGNOSTIC_IP_DAY: { bucket: "diagnostic:ip:day", limit: 3, windowSeconds: 86_400 },
+
+  /**
+   * Registry request (/join, the no-match branch) — the diagnostic's shape and
+   * the diagnostic's numbers.
+   *
+   * The short-and-long pair is what matters and is copied deliberately: a
+   * business asks to be listed roughly once, so a burst window stops a script
+   * and a daily window stops the slow drip that would stay under it.
+   *
+   * ⚠ THE COST PROFILE HERE IS LOWER THAN THE DIAGNOSTIC'S, so if these ever
+   * trip against real traffic, this is the pair to loosen first. An accepted
+   * request costs a row, one Resend email and a minute of a reviewer's time — it
+   * does NOT spend a GHL contact, a GHL opportunity or a concierge callback. The
+   * numbers are matched to the diagnostic's for consistency, not because the
+   * blast radius is the same.
+   *
+   * THE SHARED-IP COST IS REAL AND IS THE SAME ONE DIAGNOSTIC_IP_DAY DESCRIBES:
+   * two partners in one office submitting their two businesses is 2, and the
+   * third is refused. The refusal names an email address to write to instead —
+   * see REQUEST_ERROR_TEXT.rate — so it is recoverable rather than a dead end.
+   */
+  REGISTRY_REQUEST_IP_BURST: { bucket: "registry-request:ip", limit: 2, windowSeconds: 600 },
+  REGISTRY_REQUEST_IP_DAY: { bucket: "registry-request:ip:day", limit: 3, windowSeconds: 86_400 },
 
   /** Magic-link send, per IP. */
   LOGIN_SEND_IP: { bucket: "login-send:ip", limit: 3, windowSeconds: 900 },

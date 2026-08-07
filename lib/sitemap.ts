@@ -39,7 +39,21 @@ const STATIC_PATHS = [
   "/counties",
   "/cities",
   "/types",
-  "/contractors",
+  /**
+   * /contractors was here until 2026-08-07. It now 308s to /join (see
+   * next.config.mjs), and a URL that redirects must not be in a sitemap — it
+   * tells Google the canonical address is one that is not.
+   *
+   * /join does NOT replace it, deliberately: that page is robots noindex, being
+   * a form flow with nothing to rank for, and listing a noindexed URL is the
+   * same contradiction pointing the other way.
+   *
+   * ⚠ /diagnostic BELOW IS EXACTLY THAT CONTRADICTION AND PREDATES THIS CHANGE.
+   * It sets robots: { index: false } in its own metadata and is listed here
+   * anyway. Left alone rather than quietly fixed in a form-consolidation commit,
+   * because removing a URL from a live sitemap is an SEO decision with its own
+   * blast radius and deserves to be made on purpose. Flagged for Jim.
+   */
   "/contact",
   "/about",
   "/sources",

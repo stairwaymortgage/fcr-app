@@ -87,7 +87,7 @@ export default async function LoginPage({
 
           <p className="mt-8 text-note leading-[1.6] text-gray-600">
             Haven&rsquo;t claimed your profile yet?{" "}
-            <Link href="/contractors">Find your license</Link> to get started.
+            <Link href="/join">Find your license</Link> to get started.
           </p>
         </div>
       </main>

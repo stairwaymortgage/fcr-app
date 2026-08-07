@@ -755,7 +755,7 @@ function ContractorCta() {
         </div>
 
         <Link
-          href="/contractors"
+          href="/join"
           className={`whitespace-nowrap bg-gold px-8 py-4 text-sm font-semibold uppercase tracking-[0.04em] text-navy-deep transition-colors hover:bg-gold-light ${FOCUS_RING_NAVY}`}
         >
           Claim Your Profile →

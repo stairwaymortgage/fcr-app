@@ -69,13 +69,19 @@ export interface AdminHeaderProps {
    * 'closed_lost'); 'new' is the one that means nobody has picked it up.
    */
   pendingLeads?: number;
+
+  /**
+   * count(registry_requests) WHERE status = 'pending'. Badge hidden when 0 or
+   * absent. Added 2026-08-07 with /admin/requests.
+   */
+  pendingRequests?: number;
 }
 
 type AdminNavLink = {
   href: string;
   label: string;
   /** Which count prop feeds this link's badge, if any. */
-  badge?: "claims" | "leads";
+  badge?: "claims" | "leads" | "requests";
 };
 
 /**
@@ -119,6 +125,14 @@ type AdminNavLink = {
  */
 const NAV_LINKS: readonly AdminNavLink[] = [
   { href: "/admin/claims", label: "Claims", badge: "claims" },
+  /**
+   * Added 2026-08-07 with /join. NOT in the mockup — that predates the registry
+   * request queue existing — and it takes a badge because it is the third thing
+   * on this site where a person is waiting on a decision from staff. It earns
+   * the pill by the rule above: the number is a queue someone must work, not
+   * context.
+   */
+  { href: "/admin/requests", label: "Requests", badge: "requests" },
   { href: "/admin/leads", label: "Leads", badge: "leads" },
   { href: "/admin/contractors", label: "Contractors" },
   { href: "/admin/sync", label: "DBPR Sync" },
@@ -188,8 +202,13 @@ export default function AdminHeader({
   userInitials,
   pendingClaims,
   pendingLeads,
+  pendingRequests,
 }: AdminHeaderProps) {
-  const badgeCounts = { claims: pendingClaims, leads: pendingLeads };
+  const badgeCounts = {
+    claims: pendingClaims,
+    leads: pendingLeads,
+    requests: pendingRequests,
+  };
 
   return (
     <header className="border-b-2 border-gold bg-navy-deep py-3.5 text-white">

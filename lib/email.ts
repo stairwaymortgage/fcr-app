@@ -2,7 +2,13 @@ import "server-only";
 
 import { headers } from "next/headers";
 
-import { render, type ClaimDecisionEmail } from "@/lib/email-copy";
+import {
+  render,
+  renderRegistryRequest,
+  type ClaimDecisionEmail,
+  type RegistryRequestEmail,
+  type RenderedEmail,
+} from "@/lib/email-copy";
 
 /**
  * Transactional email — Resend.
@@ -61,7 +67,11 @@ const TIMEOUT_MS = 8000;
 export type EmailResult = { ok: boolean; error?: string };
 
 // Re-exported so callers have one import for the whole feature.
-export type { ClaimDecision, ClaimDecisionEmail } from "@/lib/email-copy";
+export type {
+  ClaimDecision,
+  ClaimDecisionEmail,
+  RegistryRequestEmail,
+} from "@/lib/email-copy";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -94,23 +104,27 @@ function siteOrigin(): string | null {
   return null;
 }
 
-/** Notify a contractor that their claim has been decided. Never throws. */
-export async function sendClaimDecisionEmail(
-  input: ClaimDecisionEmail,
-): Promise<EmailResult> {
+/**
+ * The transport, shared by every message this module sends.
+ *
+ * Extracted when the registry-request acknowledgement was added: two copies of
+ * the config checks, the timeout and the Resend error handling would have been
+ * two places for the timeout to drift and two places to forget that this must
+ * never throw. What differs between messages is the copy, and that lives in
+ * lib/email-copy.ts — not here.
+ */
+async function deliver(to: string, mail: RenderedEmail): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
 
   // Missing configuration is reported, never thrown. On a deployment without
-  // these set, decisions keep working and every skipped send is logged.
+  // these set, the caller's own work keeps working and every skipped send is
+  // logged.
   if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
   if (!from) return { ok: false, error: "EMAIL_FROM not set" };
-  if (!input.to) return { ok: false, error: "no recipient address on the claim" };
+  if (!to) return { ok: false, error: "no recipient address" };
 
-  const origin = siteOrigin();
-  if (!origin) return { ok: false, error: "cannot determine site origin for links" };
-
-  const { subject, html, text } = render(input, origin);
+  const { subject, html, text } = mail;
 
   try {
     const response = await fetch(RESEND_ENDPOINT, {
@@ -119,7 +133,7 @@ export async function sendClaimDecisionEmail(
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from, to: [input.to], subject, html, text }),
+      body: JSON.stringify({ from, to: [to], subject, html, text }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
@@ -139,4 +153,32 @@ export async function sendClaimDecisionEmail(
     // stands and the email did not go.
     return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
   }
+}
+
+/** Notify a contractor that their claim has been decided. Never throws. */
+export async function sendClaimDecisionEmail(
+  input: ClaimDecisionEmail,
+): Promise<EmailResult> {
+  const origin = siteOrigin();
+  if (!origin) return { ok: false, error: "cannot determine site origin for links" };
+
+  return deliver(input.to, render(input, origin));
+}
+
+/**
+ * Acknowledge a registry request from /join. Never throws.
+ *
+ * Same contract as the decision email and for the same reason: the request is
+ * already committed to registry_requests by the time this runs. A Resend outage
+ * must not turn a saved request into an error on the visitor's screen — the
+ * obvious response to that error is to submit again, which is how one business
+ * ends up three times in the reviewer's queue.
+ */
+export async function sendRegistryRequestEmail(
+  input: RegistryRequestEmail,
+): Promise<EmailResult> {
+  const origin = siteOrigin();
+  if (!origin) return { ok: false, error: "cannot determine site origin for links" };
+
+  return deliver(input.to, renderRegistryRequest(input, origin));
 }

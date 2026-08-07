@@ -37,10 +37,24 @@ export interface HeaderProps {
   searchQuery?: string;
 }
 
+/**
+ * ⚠ THE ONLY TWO FORM ENTRY POINTS ON THE SITE ARE IN HERE, and that is the
+ * whole point of the 2026-08-07 consolidation. "Request a Quote" is the
+ * homeowner's door (the diagnostic); "Join the Registry" is the business's door
+ * (/join, which routes to either the claim flow or a registry request). There
+ * is deliberately no third — /contact is a routing page with published
+ * addresses and no form.
+ *
+ * "For Contractors" -> /contractors was replaced here. That page said "Claiming
+ * opens soon" and was deleted; the URL now 308s to /join. The label changed with
+ * it, because "For Contractors" describes an audience and the link is now an
+ * action.
+ */
 const NAV_LINKS = [
   { href: "/counties", label: "Counties" },
   { href: "/types", label: "License Types" },
-  { href: "/contractors", label: "For Contractors" },
+  { href: "/join", label: "Join the Registry" },
+  { href: "/diagnostic", label: "Request a Quote" },
 ] as const;
 
 /** 6px gold separator between top-strip facts. Decorative. */

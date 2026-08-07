@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { SMS_CONSENT_TEXT } from "@/lib/consent";
+import { formatBusinessName, formatPersonName } from "@/lib/contractor-profile";
 import { pushLeadToGhl } from "@/lib/ghl";
 import { LIMITS as RATE, checkLimits, requestIp } from "@/lib/rate-limit";
 import { determineRouting, routesToJson } from "@/lib/lead-routing";
@@ -217,6 +218,66 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
   const admin = createAdminClient();
 
   /**
+   * Resolve the referring profile's display name, for GHL.
+   *
+   * ═══════════════════════════════════════════════════════════════════════════
+   * A NAME, NOT A SLUG, BECAUSE A PERSON READS THIS FIELD.
+   *
+   * "FCR Referring Contractor" is read by a concierge opening the contact before
+   * a call. "Gulf Coast Roofing Inc" is something they can say out loud;
+   * "gulf-coast-roofing-inc-cgc1520921" is something they have to decode. The
+   * slug is still recorded verbatim in leads.referring_url either way.
+   *
+   * NOTHING HERE CAN FAIL THE SUBMISSION. A miss, an error, or a profile that
+   * has since been deleted all fall through to the slug, which is strictly
+   * better than dropping the lead over a cosmetic lookup. Indexed on slug and
+   * only run when a referrer is present, so the ordinary no-referrer submission
+   * pays nothing for this.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  let referringContractor: string | null = null;
+  if (data.referringSlug) {
+    referringContractor = data.referringSlug;
+    try {
+      const { data: profile, error: profileError } = await admin
+        .from("contractors")
+        .select("business_name, qualifying_agent_name")
+        .eq("slug", data.referringSlug)
+        .maybeSingle();
+
+      if (profileError) {
+        console.warn("[diagnostic] referring contractor lookup failed — using the slug", {
+          slug: data.referringSlug,
+          code: profileError.code,
+          message: profileError.message,
+        });
+      } else if (profile) {
+        /**
+         * business_name is NULL on ~125k rows; the qualifying agent is the
+         * fallback the profile page itself renders in that case, so GHL shows
+         * the same name the visitor saw.
+         *
+         * ⚠ BOTH FORMATTERS TAKE A NON-NULL string AND CALL .trim() ON IT. The
+         * supabase client is untyped here, so a null business_name would type-
+         * check and then throw at runtime — inside the try, which would have
+         * quietly downgraded every null-name referrer to the slug. Guarded
+         * explicitly rather than relying on `||`.
+         */
+        if (profile.business_name) {
+          referringContractor = formatBusinessName(profile.business_name);
+        } else if (profile.qualifying_agent_name) {
+          referringContractor = formatPersonName(profile.qualifying_agent_name);
+        }
+      }
+    } catch (err) {
+      console.warn("[diagnostic] referring contractor lookup threw — using the slug", {
+        slug: data.referringSlug,
+        error: String(err).slice(0, 200),
+      });
+    }
+  }
+
+  /**
    * DUPLICATE SUPPRESSION — the same person, inside 24 hours, is one lead.
    *
    * ⚠ THIS MATTERS MORE HERE THAN ON THE INQUIRY FORM, because a duplicate is
@@ -351,6 +412,7 @@ export async function submitDiagnostic(input: unknown): Promise<SubmitResult> {
       smsConsentText: consent.sms_consent_text,
       smsConsentTimestamp: consent.sms_consent_timestamp,
       referringUrl,
+      referringContractor,
     });
 
     if (ghl.unmapped.length > 0) {
