@@ -8,6 +8,7 @@ import { getCountiesWithCounts } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { COUNTY_COUNT, contractorCountLabel } from "@/lib/registry-stats";
+import { publicPageMetadata } from "@/lib/seo";
 import { createPublicClient } from "@/lib/supabase/public";
 
 /**
@@ -25,12 +26,12 @@ import { createPublicClient } from "@/lib/supabase/public";
  *     Sorting is a link-driven concern; it can return as ?sort= without JS.
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Florida contractors by county · Florida Contractor Registry",
   description:
     "Every Florida contractor record organized by the 67 counties of issuance, drawn from the weekly DBPR public records extract.",
-  alternates: { canonical: "/counties" },
-};
+  path: "/counties",
+});
 
 export const revalidate = 86400;
 

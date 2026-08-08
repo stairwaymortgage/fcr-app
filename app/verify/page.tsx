@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
 import { contractorCountLabel } from "@/lib/registry-stats";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * How to Verify a License — /verify
@@ -40,12 +41,12 @@ import { contractorCountLabel } from "@/lib/registry-stats";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "How to verify a contractor license · Florida Contractor Registry",
   description:
-    "A step-by-step guide to verifying a Florida contractor's license in about three minutes.",
-  alternates: { canonical: "/verify" },
-};
+    "A step-by-step guide to verifying a Florida contractor's license in about three minutes — where to look, what each license status means, and what to check.",
+  path: "/verify",
+});
 
 export default function VerifyPage() {
   return (

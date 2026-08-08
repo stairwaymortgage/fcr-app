@@ -5,6 +5,7 @@ import ContentPageLayout, {
   LegalBanner,
   SectionHeading,
 } from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Featured Tier Subscriber Agreement — /featured-terms
@@ -39,12 +40,12 @@ import ContentPageLayout, {
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Featured Tier Subscriber Agreement · Florida Contractor Registry",
   description:
-    "The agreement governing the $29/month Featured Tier subscription on FloridaContractorRegistry.com.",
-  alternates: { canonical: "/featured-terms" },
-};
+    "The agreement governing the $29/month Featured Tier subscription on FloridaContractorRegistry.com — fee, billing, auto-renewal, cancellation and listing terms.",
+  path: "/featured-terms",
+});
 
 export default function FeaturedTermsPage() {
   return (

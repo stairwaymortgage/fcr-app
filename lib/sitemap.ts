@@ -36,7 +36,6 @@ const CONCURRENCY = 6;
  */
 const STATIC_PATHS = [
   "/",
-  "/search",
   "/counties",
   "/cities",
   "/types",
@@ -49,11 +48,24 @@ const STATIC_PATHS = [
    * a form flow with nothing to rank for, and listing a noindexed URL is the
    * same contradiction pointing the other way.
    *
-   * ⚠ /diagnostic BELOW IS EXACTLY THAT CONTRADICTION AND PREDATES THIS CHANGE.
-   * It sets robots: { index: false } in its own metadata and is listed here
-   * anyway. Left alone rather than quietly fixed in a form-consolidation commit,
-   * because removing a URL from a live sitemap is an SEO decision with its own
-   * blast radius and deserves to be made on purpose. Flagged for Jim.
+   * ═══════════════════════════════════════════════════════════════════════════
+   * ⚠ EVERY PATH IN THIS LIST MUST BE INDEXABLE. /search AND /diagnostic WERE
+   * NOT, AND HAVE BEEN REMOVED (2026-08-08, approved).
+   *
+   * Both set robots noindex in their own metadata and were listed here anyway —
+   * the sitemap asking Google to crawl a URL the page then tells it to drop.
+   * The note that used to sit here flagged /diagnostic and MISSED /search,
+   * which is the tell: a prose warning next to a list does not scale, because
+   * the next reader checks the item the comment names and not the other
+   * fourteen. The 2026-08-08 audit found /search by reading the list against
+   * each page's robots value rather than against this comment.
+   *
+   * /search was the worse of the two: thin, duplicative, infinite in number, and
+   * competing with the county and type pages that are meant to rank.
+   *
+   * THE RULE, NOT THE INSTANCE: before adding a path here, open the page and
+   * check its `robots`. If it is noindex, it does not belong in a sitemap.
+   * ═══════════════════════════════════════════════════════════════════════════
    */
   "/contact",
   "/about",
@@ -62,7 +74,6 @@ const STATIC_PATHS = [
   "/permits",
   "/complaint",
   "/hiring-checklist",
-  "/diagnostic",
   "/terms",
   "/privacy",
   "/cookies",

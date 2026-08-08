@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import { getCities, getCountyMeta } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
+import { publicPageMetadata } from "@/lib/seo";
 import { createPublicClient } from "@/lib/supabase/public";
 
 /**
@@ -25,12 +26,12 @@ import { createPublicClient } from "@/lib/supabase/public";
  * page, just not through a /city URL.
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Florida contractors by city · Florida Contractor Registry",
   description:
     "Browse Florida contractor records by city, grouped by county. Drawn from the weekly DBPR public records extract.",
-  alternates: { canonical: "/cities" },
-};
+  path: "/cities",
+});
 
 export const revalidate = 86400;
 

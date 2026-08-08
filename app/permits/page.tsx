@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Permit Look-Up Guide — /permits
@@ -28,12 +29,12 @@ import ContentPageLayout from "@/components/ContentPageLayout";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Permit look-up guide · Florida Contractor Registry",
   description:
-    "How Florida permits work, what work requires one, and how to check whether your project's permits were pulled and closed.",
-  alternates: { canonical: "/permits" },
-};
+    "How Florida permits work, what work requires one, and how to check whether your project's permits were pulled and closed. A permitted job has been inspected.",
+  path: "/permits",
+});
 
 export default function PermitsPage() {
   return (

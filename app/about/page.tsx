@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
 import { contractorCountLabel } from "@/lib/registry-stats";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * About — /about
@@ -38,12 +39,12 @@ import { contractorCountLabel } from "@/lib/registry-stats";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "About the registry · Florida Contractor Registry",
   description:
-    "Why Florida Contractor Registry exists, what it is, what it is not, and who operates it.",
-  alternates: { canonical: "/about" },
-};
+    "Why Florida Contractor Registry exists, what it is, what it is not, and who operates it — a note from the publisher on how the registry started and why.",
+  path: "/about",
+});
 
 export default function AboutPage() {
   return (

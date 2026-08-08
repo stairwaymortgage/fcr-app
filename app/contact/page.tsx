@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Contact — /contact
@@ -64,14 +65,14 @@ import ContentPageLayout from "@/components/ContentPageLayout";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   // Full suffix, matching every other page — see the note on title in
   // app/layout.tsx for why there is no template doing this.
   title: "Contact · Florida Contractor Registry",
   description:
-    "How to reach Florida Contractor Registry — support, corrections, privacy, legal notices and takedown requests.",
-  alternates: { canonical: "/contact" },
-};
+    "Six contact addresses for Florida Contractor Registry — support, data corrections, privacy, legal notices and takedown requests — each routed to a person.",
+  path: "/contact",
+});
 
 type Route = {
   address: string;

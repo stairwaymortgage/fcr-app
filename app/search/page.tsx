@@ -172,6 +172,26 @@ function SearchContext({
       <div className="mx-auto max-w-shell">
         <Eyebrow>Search Results</Eyebrow>
 
+        {/**
+         * The page's only h1, and the reason it is sr-only.
+         *
+         * /search was the one public route with NO h1 at all — six h2s under
+         * nothing, so the document outline started at level 2. Every other
+         * public page has exactly one.
+         *
+         * VISUALLY HIDDEN BECAUSE THIS HERO HAS NO SLOT FOR A HEADING. The
+         * mockup opens straight into the search input under its eyebrow; the
+         * browse pages get their visible h1 from PageHero, which this route
+         * deliberately does not use. Rendering a 42px title here would redesign
+         * the hero, and the page is `robots: noindex` — so a visible heading
+         * buys no ranking, while the outline fix is worth having for screen
+         * readers either way. `sr-only` is already the idiom in this file (see
+         * the input's label immediately below).
+         */}
+        <h1 className="sr-only">
+          {query ? `Search results for “${query}”` : "Search the registry"}
+        </h1>
+
         <form
           role="search"
           action="/search"

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Hiring Checklist — /hiring-checklist
@@ -30,12 +31,12 @@ import ContentPageLayout from "@/components/ContentPageLayout";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Hiring checklist · Florida Contractor Registry",
   description:
-    "Twelve checks to run before signing with a Florida contractor — license, insurance, and contract.",
-  alternates: { canonical: "/hiring-checklist" },
-};
+    "Twelve checks in three sections, about thirty minutes: the questions to ask a Florida contractor and the answers to confirm before work starts on your home.",
+  path: "/hiring-checklist",
+});
 
 export default function HiringChecklistPage() {
   return (

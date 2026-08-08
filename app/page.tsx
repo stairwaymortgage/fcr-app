@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import Footer from "@/components/Footer";
@@ -50,6 +51,29 @@ import { createPublicClient } from "@/lib/supabase/public";
  * Footer and would otherwise have dragged the route back to dynamic on its own.
  */
 export const revalidate = 86400;
+
+/**
+ * THE CANONICAL, AND NOTHING ELSE.
+ *
+ * / was the only public route emitting no <link rel="canonical"> at all — it
+ * declares no metadata of its own, so it inherits the layout's title,
+ * description and social card, and `alternates` is not something a layout can
+ * supply on a page's behalf.
+ *
+ * ⚠ DELIBERATELY NOT publicPageMetadata(). That helper also writes openGraph
+ * and twitter, and here they are already correct: the layout's og:url is "/",
+ * which is this page. Routing them through the helper would restate the
+ * layout's own title and description as if they were page-specific — the same
+ * duplication the missing title.template note in app/layout.tsx warns about.
+ *
+ * The homepage title ("Florida Contractor Registry", 27 chars) and description
+ * are the shortest on the site and are a known open question. Left alone here:
+ * this commit is the safe half of the 2026-08-08 SEO audit, and rewriting the
+ * title of the highest-authority indexed page is not part of it.
+ */
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 /* ========================================================================== *
  * DATA

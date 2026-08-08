@@ -8,6 +8,7 @@ import { getTypesWithCounts } from "@/lib/browse";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { LICENSE_TYPE_COUNT } from "@/lib/registry-stats";
+import { publicPageMetadata } from "@/lib/seo";
 import { createPublicClient } from "@/lib/supabase/public";
 
 /**
@@ -23,12 +24,12 @@ import { createPublicClient } from "@/lib/supabase/public";
  * pages, which were the same drift hazard the contractor slug had.
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Florida contractor license types · Florida Contractor Registry",
   description:
     "The Florida contractor license categories, what each one legally covers, and how many records hold it. From the weekly DBPR public records extract.",
-  alternates: { canonical: "/types" },
-};
+  path: "/types",
+});
 
 export const revalidate = 86400;
 

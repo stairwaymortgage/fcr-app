@@ -5,6 +5,7 @@ import ContentPageLayout, {
   LegalBanner,
   SectionHeading,
 } from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Terms of Service — /terms
@@ -42,12 +43,12 @@ import ContentPageLayout, {
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Terms of Service · Florida Contractor Registry",
   description:
-    "The agreement between you and Olga's Friends LLC governing your use of FloridaContractorRegistry.com.",
-  alternates: { canonical: "/terms" },
-};
+    "The agreement between you and Olga's Friends LLC governing your use of FloridaContractorRegistry.com — permitted use, content, public records data and DMCA.",
+  path: "/terms",
+});
 
 export default function TermsPage() {
   return (

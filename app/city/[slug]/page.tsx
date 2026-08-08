@@ -16,6 +16,7 @@ import {
 import { getCityBySlug } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
+import { publicPageMetadata } from "@/lib/seo";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -59,10 +60,14 @@ export async function generateMetadata({
   const city = await getCityBySlug(db, params.slug);
   if (!city) return { title: "City not found · Florida Contractor Registry" };
 
+  // Title and description unchanged — indexed at ~1,000 pages. See the note in
+  // app/county/[slug]/page.tsx; this only adds the missing social card.
   return {
-    title: `Licensed contractors in ${city.city_name}, Florida`,
-    description: `Contractor records on file with the Florida DBPR for ${city.city_name} — license numbers, types, status and qualifying agents, refreshed weekly.`,
-    alternates: { canonical: `/city/${city.city_slug}` },
+    ...publicPageMetadata({
+      title: `Licensed contractors in ${city.city_name}, Florida`,
+      description: `Contractor records on file with the Florida DBPR for ${city.city_name} — license numbers, types, status and qualifying agents, refreshed weekly.`,
+      path: `/city/${city.city_slug}`,
+    }),
     robots: { index: true, follow: true },
   };
 }

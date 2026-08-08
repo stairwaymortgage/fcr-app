@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
 import { contractorCountLabel } from "@/lib/registry-stats";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Data Sources — /sources
@@ -33,12 +34,12 @@ import { contractorCountLabel } from "@/lib/registry-stats";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Data sources · Florida Contractor Registry",
   description:
-    "Where Florida Contractor Registry's data comes from, how often it updates, what is included, and what is not.",
-  alternates: { canonical: "/sources" },
-};
+    "Where Florida Contractor Registry's data comes from, how often it updates, what the weekly DBPR public records extract includes, and what it leaves out.",
+  path: "/sources",
+});
 
 export default function SourcesPage() {
   return (

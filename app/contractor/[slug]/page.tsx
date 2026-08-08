@@ -114,6 +114,24 @@ export async function generateMetadata({
     ? `${name} (${contractor.license_number}) · Florida Contractor Registry`
     : `${name} · Florida Contractor Registry`;
 
+  /**
+   * ⚠ TITLE AND DESCRIPTION ARE UNCHANGED, AND THAT IS THE POINT OF THIS EDIT
+   * BEING SMALL. 54.9% of the 266,305 profile titles exceed 60 characters and
+   * 45.9% of the descriptions exceed 160 (measured against the live table
+   * 2026-08-08). Reformatting either is a rewrite of a quarter-million indexed
+   * SERP entries and is explicitly held for Jim.
+   *
+   * `twitter` IS WRITTEN OUT RATHER THAN LEFT TO FALL BACK ON openGraph. Next
+   * derives twitter:* from openGraph only when no `twitter` is in scope — and
+   * one always is, from app/layout.tsx. So this page had a correct og:title and
+   * a twitter:title reading "Florida Contractor Registry", which is what the
+   * live HTML showed before this commit. The card was right on Facebook and
+   * LinkedIn and generic on X, for every profile on the site.
+   *
+   * NOT publicPageMetadata(): that helper emits og `type: "website"`, and these
+   * are profiles. The og:type is the one field a shared helper would get wrong
+   * here, so this route keeps its own block.
+   */
   return {
     title,
     description,
@@ -124,6 +142,7 @@ export async function generateMetadata({
       type: "profile",
       url: `/contractor/${contractor.slug}`,
     },
+    twitter: { title, description },
     // Profiles ARE the pages meant to rank — unlike /search, which is noindex.
     robots: { index: true, follow: true },
   };

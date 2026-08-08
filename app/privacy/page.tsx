@@ -5,6 +5,7 @@ import ContentPageLayout, {
   LegalBanner,
   SectionHeading,
 } from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Privacy Policy — /privacy
@@ -37,12 +38,12 @@ import ContentPageLayout, {
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Privacy Policy · Florida Contractor Registry",
   description:
-    "How Florida Contractor Registry collects, uses, and protects your information.",
-  alternates: { canonical: "/privacy" },
-};
+    "How FloridaContractorRegistry.com collects, uses, shares and protects your information — what we collect, who receives it, and your access and deletion rights.",
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (

@@ -6,6 +6,7 @@ import ContentPageLayout, {
   LegalBanner,
   SectionHeading,
 } from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * SMS Terms — /sms-terms
@@ -38,12 +39,12 @@ import ContentPageLayout, {
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "SMS Terms · Florida Contractor Registry",
   description:
-    "Terms governing text messages from the Florida Contractor Registry advisory team, including how to opt out.",
-  alternates: { canonical: "/sms-terms" },
-};
+    "Terms governing text messages from the Florida Contractor Registry advisory team after you submit an inquiry, including message frequency and how to opt out.",
+  path: "/sms-terms",
+});
 
 export default function SmsTermsPage() {
   return (

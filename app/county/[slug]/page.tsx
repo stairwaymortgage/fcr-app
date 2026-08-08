@@ -18,6 +18,7 @@ import {
 import { getCountyBySlug } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
+import { publicPageMetadata } from "@/lib/seo";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -49,10 +50,22 @@ export async function generateMetadata({
   const county = await getCountyBySlug(db, params.slug);
   if (!county) return { title: "County not found · Florida Contractor Registry" };
 
+  /**
+   * Title and description are UNCHANGED and deliberately so — they are indexed
+   * across all 67 counties, and restyling them (adding the site-name suffix
+   * every other page carries, for instance) is a bulk rewrite of live SERP text
+   * that is Jim's call, not a side effect of fixing the social card.
+   *
+   * publicPageMetadata adds the openGraph and twitter blocks these pages never
+   * had: without them Next hands down app/layout.tsx's, whose og:url is "/" —
+   * so every county page told a scraper it was the homepage.
+   */
   return {
-    title: `Licensed contractors in ${county.county_name} County, Florida`,
-    description: `Every contractor record on file with the Florida DBPR for ${county.county_name} County — license numbers, types, status and city, refreshed weekly.`,
-    alternates: { canonical: `/county/${county.county_slug}` },
+    ...publicPageMetadata({
+      title: `Licensed contractors in ${county.county_name} County, Florida`,
+      description: `Every contractor record on file with the Florida DBPR for ${county.county_name} County — license numbers, types, status and city, refreshed weekly.`,
+      path: `/county/${county.county_slug}`,
+    }),
     robots: { index: true, follow: true },
   };
 }

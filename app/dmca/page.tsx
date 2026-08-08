@@ -4,6 +4,7 @@ import ContentPageLayout, {
   LegalBanner,
   SectionHeading,
 } from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * DMCA Notice and Takedown — /dmca
@@ -56,12 +57,12 @@ import ContentPageLayout, {
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "DMCA Notice and Takedown · Florida Contractor Registry",
   description:
-    "How to report copyright infringement on Florida Contractor Registry, and how we respond.",
-  alternates: { canonical: "/dmca" },
-};
+    "How to report copyright infringement on FloridaContractorRegistry.com, what a valid DMCA notice must contain, and how we respond to one once it is received.",
+  path: "/dmca",
+});
 
 export default function DmcaPage() {
   return (

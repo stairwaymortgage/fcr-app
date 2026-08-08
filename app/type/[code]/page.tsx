@@ -15,6 +15,7 @@ import {
 import { getTypeByCode } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
+import { publicPageMetadata } from "@/lib/seo";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -44,12 +45,32 @@ export async function generateMetadata({
   const type = await getTypeByCode(db, params.code);
   if (!type) return { title: "License type not found · Florida Contractor Registry" };
 
+  /**
+   * scope_description IS WRAPPED, NOT USED BARE.
+   *
+   * It was the whole description until now, and it is written as a scope note
+   * for the page body, not as a meta description: "Air conditioning
+   * specifically." — 22 to 66 characters, averaging 34 across all 29 types
+   * (measured 2026-08-08). Every licence-type page therefore shipped a meta
+   * description under half the length Google will render, with no mention of
+   * Florida, the DBPR, or what the page actually lists.
+   *
+   * The `??` fallback below it never fired: scope_description is NOT NULL on
+   * all 29 rows, so the good sentence was dead code. Wrapping merges the two —
+   * the scope leads, because it is the part that differs between types, and the
+   * shared sentence follows. That lands 26 of 29 between 140 and 170 characters
+   * (avg 154); the spread is inherited from the source text and cannot be
+   * closed further without editing copy in the database, which is not this
+   * commit's job.
+   */
+  const description = `${type.scope_description ?? `Florida contractors licensed as ${type.type_name}.`} Every ${type.type_name} (${type.type_code}) record in the weekly Florida DBPR extract — license number, status and city.`;
+
   return {
-    title: `${type.type_name} (${type.type_code}) — Florida contractors`,
-    description:
-      type.scope_description ??
-      `Florida contractor records holding a ${type.type_name} license (${type.type_code}), from the weekly DBPR public records extract.`,
-    alternates: { canonical: `/type/${type.type_code.toLowerCase()}` },
+    ...publicPageMetadata({
+      title: `${type.type_name} (${type.type_code}) — Florida contractors`,
+      description,
+      path: `/type/${type.type_code.toLowerCase()}`,
+    }),
     robots: { index: true, follow: true },
   };
 }

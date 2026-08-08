@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import ContentPageLayout from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * File a Complaint — /complaint
@@ -33,12 +34,12 @@ import ContentPageLayout from "@/components/ContentPageLayout";
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "File a complaint · Florida Contractor Registry",
   description:
-    "How to file a contractor complaint with Florida DBPR, what they investigate, and what the Construction Industries Recovery Fund covers.",
-  alternates: { canonical: "/complaint" },
-};
+    "How to file a contractor complaint with Florida DBPR: the process, what the department investigates, and what the Construction Industries Recovery Fund covers.",
+  path: "/complaint",
+});
 
 export default function ComplaintPage() {
   return (

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import ContentPageLayout, {
   SectionHeading,
 } from "@/components/ContentPageLayout";
+import { publicPageMetadata } from "@/lib/seo";
 
 /**
  * Cookie Notice — /cookies
@@ -32,12 +33,12 @@ import ContentPageLayout, {
  */
 export const revalidate = 86400;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "Cookie Notice · Florida Contractor Registry",
   description:
-    "What cookies and similar technologies Florida Contractor Registry uses, and what choices you have.",
-  alternates: { canonical: "/cookies" },
-};
+    "What cookies and similar technologies FloridaContractorRegistry.com uses — which are essential, which are analytics, and what we do not use — plus your choices.",
+  path: "/cookies",
+});
 
 export default function CookiesPage() {
   return (
