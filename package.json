@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "verify:tokens": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/verify-design-tokens.mjs",
+    "build": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/verify-design-tokens.mjs && next build",
     "start": "next start",
     "lint": "next lint"
   },
