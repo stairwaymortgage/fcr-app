@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import StairwayAd from "@/components/StairwayAd";
 import { dataAsOf } from "@/lib/data-as-of";
 import { FOCUS_RING_NAVY, FOCUS_RING_PAPER } from "@/lib/focus";
 import {
@@ -813,6 +814,15 @@ export default async function Home() {
       <main>
         <Hero />
         <AuthorityBand activeLicenses={activeLicenses} />
+
+        {/* Stairway Mortgage — leaderboard */}
+        <div className="hidden md:block py-6">
+          <StairwayAd size="970x250" />
+        </div>
+        <div className="md:hidden py-4">
+          <StairwayAd size="320x100" />
+        </div>
+
         <BrowseCounties counties={counties} />
         <BrowseTypes types={types} />
         <RecentlyAdded contractors={recentlyAdded} />

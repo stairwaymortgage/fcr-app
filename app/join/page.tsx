@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import StairwayAd from "@/components/StairwayAd";
 import SubmitButton from "@/components/SubmitButton";
 import { getCountiesWithCounts } from "@/lib/browse";
 import { formatBusinessName, formatPersonName } from "@/lib/contractor-profile";
@@ -194,6 +195,14 @@ export default async function JoinPage({
   return (
     <>
       <Header statsTimestamp={asOf} />
+
+      {/* Stairway Mortgage — leaderboard */}
+      <div className="hidden md:block bg-paper py-6">
+        <StairwayAd size="728x90" />
+      </div>
+      <div className="md:hidden bg-paper py-4">
+        <StairwayAd size="320x100" />
+      </div>
 
       <main id="main" className="bg-paper">
         <div className="mx-auto max-w-[760px] px-6 py-16 max-[700px]:py-10">

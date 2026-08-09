@@ -6,6 +6,7 @@ import ContractorList from "@/components/browse/ContractorList";
 import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import StairwayAd from "@/components/StairwayAd";
 import {
   getCitiesInCounty,
   getContractorPage,
@@ -243,6 +244,11 @@ export default async function CountyPage({
               </li>
             ))}
           </ul>
+
+          {/* Stairway Mortgage */}
+          <div className="mt-6">
+            <StairwayAd size="300x250" />
+          </div>
         </aside>
 
         <div>

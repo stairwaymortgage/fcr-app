@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import StairwayAd from "@/components/StairwayAd";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import {
@@ -615,6 +616,11 @@ export default async function SearchPage({
             )}
           </section>
         )}
+
+        {/* Stairway Mortgage — sponsored listing */}
+        <div className="mb-14 flex justify-center">
+          <StairwayAd size="340x420" />
+        </div>
 
         {cities.length > 0 && (
           <section className="mb-14">

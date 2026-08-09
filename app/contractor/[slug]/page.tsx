@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import StairwayAd from "@/components/StairwayAd";
 import {
   ContractorProfile,
   SiblingLicense,
@@ -996,6 +997,12 @@ export default async function ContractorProfilePage({
           </SideBlock>
 
           <QuoteCta name={name} slug={contractor.slug} />
+
+          {/* Stairway Mortgage */}
+          <div className="my-5 space-y-5">
+            <StairwayAd size="300x600" />
+            <StairwayAd size="300x250" />
+          </div>
 
           <div className="mb-5 border-l-[3px] border-gold bg-gold-pale px-[18px] py-3.5 text-ui leading-[1.5] text-ink">
             <span className="mb-1.5 block font-mono text-label font-semibold uppercase tracking-[0.1em] text-navy">
