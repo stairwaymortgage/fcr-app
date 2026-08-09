@@ -205,7 +205,7 @@ export default async function CountyPage({
         </div>
       )}
 
-      <main className="mx-auto grid max-w-shell grid-cols-[260px_1fr] gap-12 px-8 pb-[72px] pt-10 max-[1000px]:grid-cols-1 max-[1000px]:gap-8">
+      <main className="mx-auto grid max-w-shell grid-cols-[260px_1fr_300px] gap-12 px-8 pb-[72px] pt-10 max-[1200px]:grid-cols-[260px_1fr] max-[1000px]:grid-cols-1 max-[1000px]:gap-8">
         <aside className="self-start">
           <h2 className="mb-4 border-b border-gray-200 pb-3 font-mono text-label font-semibold uppercase tracking-label text-gray-500">
             License Type
@@ -244,11 +244,6 @@ export default async function CountyPage({
               </li>
             ))}
           </ul>
-
-          {/* Stairway Mortgage */}
-          <div className="mt-6">
-            <StairwayAd size="300x250" />
-          </div>
         </aside>
 
         <div>
@@ -267,6 +262,11 @@ export default async function CountyPage({
             }
           />
         </div>
+
+        {/* Stairway Mortgage — right sidebar */}
+        <aside className="self-start max-[1200px]:col-span-full max-[1200px]:flex max-[1200px]:justify-center lg:sticky lg:top-6">
+          <StairwayAd size="300x250" />
+        </aside>
       </main>
 
       <Footer lastSyncDate={asOf} />

@@ -905,6 +905,15 @@ export default async function ContractorProfilePage({
         </div>
 
         <aside className="self-start max-[1000px]:static lg:sticky lg:top-6">
+          {/* Stairway Mortgage — Sponsored */}
+          <div className="mb-5">
+            <span className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
+              Sponsored
+            </span>
+            <StairwayAd size="300x250" />
+          </div>
+
           <SideBlock title="Primary License">
             <dl>
               <DlRow term="License Number">
@@ -997,12 +1006,6 @@ export default async function ContractorProfilePage({
           </SideBlock>
 
           <QuoteCta name={name} slug={contractor.slug} />
-
-          {/* Stairway Mortgage */}
-          <div className="my-5 space-y-5">
-            <StairwayAd size="300x600" />
-            <StairwayAd size="300x250" />
-          </div>
 
           <div className="mb-5 border-l-[3px] border-gold bg-gold-pale px-[18px] py-3.5 text-ui leading-[1.5] text-ink">
             <span className="mb-1.5 block font-mono text-label font-semibold uppercase tracking-[0.1em] text-navy">

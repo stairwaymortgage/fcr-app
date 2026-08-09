@@ -552,7 +552,8 @@ export default async function SearchPage({
       <Header statsTimestamp={asOf} searchQuery={parsed.raw} />
       <SearchContext query={parsed.raw} summary={summary} />
 
-      <main className="mx-auto max-w-shell px-8 pb-[88px] pt-12">
+      <main className="mx-auto grid max-w-shell grid-cols-[1fr_340px] gap-12 px-8 pb-[88px] pt-12 max-[1100px]:grid-cols-1">
+        <div>
         {!parsed.raw && <NoQuery />}
         {parsed.tooShort && <TooShort query={parsed.raw} />}
 
@@ -617,11 +618,6 @@ export default async function SearchPage({
           </section>
         )}
 
-        {/* Stairway Mortgage — sponsored listing */}
-        <div className="mb-14 flex justify-center">
-          <StairwayAd size="340x420" />
-        </div>
-
         {cities.length > 0 && (
           <section className="mb-14">
             <SectionHeader
@@ -680,6 +676,12 @@ export default async function SearchPage({
             </div>
           </section>
         )}
+        </div>
+
+        {/* Stairway Mortgage — right sidebar */}
+        <aside className="self-start max-[1100px]:flex max-[1100px]:justify-center lg:sticky lg:top-6">
+          <StairwayAd size="340x420" />
+        </aside>
       </main>
 
       <Footer lastSyncDate={asOf} />
