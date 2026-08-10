@@ -5,7 +5,7 @@
  * uses a transparent body so no dark border bleeds through.
  */
 
-type AdSize = "970x250" | "320x100" | "340x420" | "300x250" | "300x600" | "728x90";
+type AdSize = "970x250" | "320x100" | "340x420" | "300x250" | "300x600" | "400x400" | "728x90";
 
 const heights: Record<AdSize, number> = {
   "970x250": 250,
@@ -13,6 +13,7 @@ const heights: Record<AdSize, number> = {
   "340x420": 420,
   "300x250": 250,
   "300x600": 600,
+  "400x400": 400,
   "728x90":  90,
 };
 
