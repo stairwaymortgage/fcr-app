@@ -7,14 +7,14 @@
 
 type AdSize = "970x250" | "320x100" | "340x420" | "300x250" | "300x600" | "400x400" | "728x90";
 
-const heights: Record<AdSize, number> = {
-  "970x250": 250,
-  "320x100": 100,
-  "340x420": 420,
-  "300x250": 250,
-  "300x600": 600,
-  "400x400": 400,
-  "728x90":  90,
+const aspects: Record<AdSize, string> = {
+  "970x250": "970 / 250",
+  "320x100": "320 / 100",
+  "340x420": "340 / 420",
+  "300x250": "300 / 250",
+  "300x600": "300 / 600",
+  "400x400": "1 / 1",
+  "728x90":  "728 / 90",
 };
 
 export default function StairwayAd({
@@ -29,10 +29,9 @@ export default function StairwayAd({
       <iframe
         src={`/ads/stairway/stairway-${size}.html`}
         width="100%"
-        height={heights[size]}
         frameBorder="0"
         scrolling="no"
-        style={{ border: 0, display: "block" }}
+        style={{ border: 0, display: "block", aspectRatio: aspects[size], width: "100%" }}
         title="Stairway Mortgage"
         loading="lazy"
       />
