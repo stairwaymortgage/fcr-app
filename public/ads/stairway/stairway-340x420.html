@@ -17,7 +17,6 @@ html,body{margin:0;padding:0;overflow:hidden;background:#0A0E1A;}
 .d.on{background:#FAFAF7;}
 .ct{position:absolute;inset:0;z-index:99;display:block;}
 #ad{transform-origin:0 0;}
-body{overflow:hidden;}
 </style>
 </head>
 <body>
@@ -73,13 +72,17 @@ body{overflow:hidden;}
 })();
 </script>
 
+
 <script>
 (function(){
   var ad=document.getElementById('ad'),W=340,H=420;
   function fit(){
     var vw=window.innerWidth;
+    if(vw>=W)return;
     var s=vw/W;
     ad.style.transform='scale('+s+')';
+    document.documentElement.style.width=vw+'px';
+    document.documentElement.style.height=Math.ceil(H*s)+'px';
     document.body.style.width=vw+'px';
     document.body.style.height=Math.ceil(H*s)+'px';
   }
