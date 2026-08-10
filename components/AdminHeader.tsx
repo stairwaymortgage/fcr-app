@@ -180,9 +180,8 @@ function Logo() {
         aria-label="Florida Contractor Registry — admin home"
         className={`flex items-center gap-3 ${FOCUS_RING_NAVY}`}
       >
-        <span className="flex h-8 w-8 items-center justify-center bg-gold font-serif text-base font-bold italic text-navy-deep">
-          F
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.jpeg" alt="" className="h-8 w-8 object-cover" />
         <span className="font-serif text-[17px] font-semibold tracking-wordmark text-white">
           Florida Contractor Registry
         </span>

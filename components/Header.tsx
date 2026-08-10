@@ -98,13 +98,8 @@ function Logo() {
       aria-label="Florida Contractor Registry — home"
       className={`flex shrink-0 items-center gap-[14px] ${FOCUS_RING_PAPER}`}
     >
-      <span className="relative flex h-[42px] w-[42px] items-center justify-center bg-navy">
-        {/* .logo-mark::after — gold rule inset 4px inside the navy square */}
-        <span aria-hidden="true" className="absolute inset-1 border border-gold" />
-        <span className="relative z-[1] font-serif text-xl font-bold italic text-gold">
-          F
-        </span>
-      </span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.jpeg" alt="" className="h-[42px] w-[42px] object-cover" />
       <span className="flex flex-col leading-[1.15]">
         <span className="font-serif text-[19px] font-semibold tracking-wordmark text-navy">
           Florida Contractor Registry

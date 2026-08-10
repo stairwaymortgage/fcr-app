@@ -7,28 +7,11 @@ import { contractorCountLabel } from "@/lib/registry-stats";
 /**
  * The default social card — /opengraph-image
  *
- * ═══════════════════════════════════════════════════════════════════════════
- * GENERATED, NOT DESIGNED IN A FILE. _handoff contains ZERO image assets — no
- * logo, no wordmark, not one PNG or SVG. The mark has only ever existed as
- * markup: a navy square, a gold rule inset 4px, an italic serif "F". So this
- * rebuilds it from the same design tokens the site renders, which means the
- * card cannot drift from the header the way an exported PNG would.
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Rendered at build time by Next's file convention, so there is no per-request
- * cost and no runtime dependency on this succeeding. Pages that want their own
- * card add their own opengraph-image; everything else inherits this.
- *
- * The colours are the literal hex values from tailwind.config.ts rather than
- * Tailwind classes — satori resolves inline styles only, and has no access to
- * the Tailwind build. If the palette moves, these move with it BY HAND, which
- * is the cost of rendering outside the CSS pipeline.
+ * Uses the Florida Contractor Registry logo image alongside the wordmark.
  */
 
 export const alt =
   "Florida Contractor Registry — a searchable registry of Florida contractor records";
-// Edge, not Node — see app/_brand/font.ts. The Node build of next/og
-// fails to prerender on Windows.
 export const runtime = "edge";
 
 export const size = { width: 1200, height: 630 };
@@ -41,6 +24,11 @@ const PAPER = "#fdfbf6";
 
 export default async function OpengraphImage() {
   const fraunces = await frauncesItalic();
+  const logoData = await fetch(new URL("../public/logo.jpeg", import.meta.url)).then(
+    (res) => res.arrayBuffer(),
+  );
+  const logoBase64 = Buffer.from(logoData).toString("base64");
+  const logoSrc = `data:image/jpeg;base64,${logoBase64}`;
 
   return new ImageResponse(
     (
@@ -53,47 +41,13 @@ export default async function OpengraphImage() {
           justifyContent: "space-between",
           background: NAVY_DEEP,
           padding: 72,
-          // The gold hairline that edges every navy surface on the site.
           borderTop: `10px solid ${GOLD}`,
         }}
       >
-        {/* MARK + WORDMARK — the header's logo group, rebuilt at 3x scale. */}
+        {/* MARK + WORDMARK */}
         <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
-          <div
-            style={{
-              position: "relative",
-              display: "flex",
-              width: 108,
-              height: 108,
-              alignItems: "center",
-              justifyContent: "center",
-              background: GOLD,
-            }}
-          >
-            {/* .logo-mark::after — the rule inset inside the square. */}
-            <div
-              style={{
-                position: "absolute",
-                top: 10,
-                left: 10,
-                right: 10,
-                bottom: 10,
-                border: `2px solid ${NAVY_DEEP}`,
-              }}
-            />
-            <div
-              style={{
-                fontFamily: "Fraunces",
-                fontSize: 64,
-                fontStyle: "italic",
-                color: NAVY_DEEP,
-                lineHeight: 1,
-              }}
-            >
-              F
-            </div>
-          </div>
-
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoSrc} alt="" width={108} height={108} style={{ objectFit: "cover" }} />
           <div
             style={{
               fontFamily: "Fraunces",
@@ -107,9 +61,6 @@ export default async function OpengraphImage() {
           </div>
         </div>
 
-        {/* THE CLAIM. "records", never "active licenses" — the ruling in
-            lib/registry-stats.ts applies to the card search engines and social
-            previews quote, which is the last place the error should survive. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div
             style={{
@@ -125,11 +76,6 @@ export default async function OpengraphImage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <div style={{ width: 40, height: 3, background: GOLD }} />
-            {/* ONE text child, built as a template literal rather than
-                interpolation next to a string. Satori requires any element
-                with more than one child to declare display:flex, and
-                `{expr} literal text` is two children in JSX — which fails at
-                render time with an error the type system cannot see. */}
             <div style={{ fontSize: 28, color: GOLD_LIGHT, letterSpacing: "0.02em" }}>
               {`${contractorCountLabel()} contractor records · sourced from Florida DBPR`}
             </div>
