@@ -1,20 +1,19 @@
 /**
  * Stairway Mortgage ad banner component.
- * Renders a fluid-width iframe that fills its container.
- * The banner HTML inside centres its fixed-size creative and
- * uses a transparent body so no dark border bleeds through.
+ * Renders an iframe that shows at native size on desktop (centred)
+ * and scales down to fill width on mobile via the ad's internal script.
  */
 
 type AdSize = "970x250" | "320x100" | "340x420" | "300x250" | "300x600" | "400x400" | "728x90";
 
-const aspects: Record<AdSize, string> = {
-  "970x250": "970 / 250",
-  "320x100": "320 / 100",
-  "340x420": "340 / 420",
-  "300x250": "300 / 250",
-  "300x600": "300 / 600",
-  "400x400": "1 / 1",
-  "728x90":  "728 / 90",
+const dims: Record<AdSize, { w: number; h: number }> = {
+  "970x250": { w: 970, h: 250 },
+  "320x100": { w: 320, h: 100 },
+  "340x420": { w: 340, h: 420 },
+  "300x250": { w: 300, h: 250 },
+  "300x600": { w: 300, h: 600 },
+  "400x400": { w: 400, h: 400 },
+  "728x90":  { w: 728, h: 90 },
 };
 
 export default function StairwayAd({
@@ -24,14 +23,17 @@ export default function StairwayAd({
   size: AdSize;
   className?: string;
 }) {
+  const { w, h } = dims[size];
+
   return (
-    <div className={className}>
+    <div className={className} style={{ maxWidth: w, margin: "0 auto" }}>
       <iframe
         src={`/ads/stairway/stairway-${size}.html`}
         width="100%"
+        height={h}
         frameBorder="0"
         scrolling="no"
-        style={{ border: 0, display: "block", aspectRatio: aspects[size], width: "100%" }}
+        style={{ border: 0, display: "block", maxWidth: "100%" }}
         title="Stairway Mortgage"
         loading="lazy"
       />

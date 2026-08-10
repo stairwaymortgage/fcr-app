@@ -104,16 +104,19 @@ html,body{margin:0;padding:0;overflow:hidden;background:#0A0E1A;}
 
 
 
+
 <script>
 (function(){
   var ad=document.getElementById('ad'),W=300,H=600;
   function fit(){
-    var s=window.innerWidth/W;
-    ad.style.transform='scale('+s+')';
-    document.documentElement.style.width=window.innerWidth+'px';
-    document.documentElement.style.height=Math.ceil(H*s)+'px';
-    document.body.style.width=window.innerWidth+'px';
-    document.body.style.height=Math.ceil(H*s)+'px';
+    var s=Math.min(1,window.innerWidth/W);
+    if(s<1){
+      ad.style.transform='scale('+s+')';
+      document.documentElement.style.width=window.innerWidth+'px';
+      document.documentElement.style.height=Math.ceil(H*s)+'px';
+      document.body.style.width=window.innerWidth+'px';
+      document.body.style.height=Math.ceil(H*s)+'px';
+    }
   }
   fit();window.addEventListener('resize',fit);
 })();
