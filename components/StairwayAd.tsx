@@ -1,18 +1,19 @@
 /**
  * Stairway Mortgage ad banner component.
- * Renders a responsive iframe pointing to the self-contained HTML creative
- * hosted at /ads/stairway/stairway-{size}.html.
+ * Renders a fluid-width iframe that fills its container.
+ * The banner HTML inside centres its fixed-size creative and
+ * uses a transparent body so no dark border bleeds through.
  */
 
 type AdSize = "970x250" | "320x100" | "340x420" | "300x250" | "300x600" | "728x90";
 
-const dimensions: Record<AdSize, { w: number; h: number }> = {
-  "970x250": { w: 970, h: 250 },
-  "320x100": { w: 320, h: 100 },
-  "340x420": { w: 340, h: 420 },
-  "300x250": { w: 300, h: 250 },
-  "300x600": { w: 300, h: 600 },
-  "728x90":  { w: 728, h: 90  },
+const heights: Record<AdSize, number> = {
+  "970x250": 250,
+  "320x100": 100,
+  "340x420": 420,
+  "300x250": 250,
+  "300x600": 600,
+  "728x90":  90,
 };
 
 export default function StairwayAd({
@@ -22,16 +23,15 @@ export default function StairwayAd({
   size: AdSize;
   className?: string;
 }) {
-  const { w, h } = dimensions[size];
   return (
-    <div className={`flex justify-center ${className}`}>
+    <div className={className}>
       <iframe
         src={`/ads/stairway/stairway-${size}.html`}
-        width={w}
-        height={h}
+        width="100%"
+        height={heights[size]}
         frameBorder="0"
         scrolling="no"
-        style={{ border: 0, display: "block", maxWidth: "100%" }}
+        style={{ border: 0, display: "block" }}
         title="Stairway Mortgage"
         loading="lazy"
       />

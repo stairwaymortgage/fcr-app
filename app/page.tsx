@@ -819,8 +819,8 @@ export default async function Home() {
         <div className="hidden md:block py-6">
           <StairwayAd size="970x250" />
         </div>
-        <div className="md:hidden py-4 px-0">
-          <StairwayAd size="320x100" className="w-full [&>iframe]:w-full" />
+        <div className="md:hidden py-4">
+          <StairwayAd size="320x100" />
         </div>
 
         <BrowseCounties counties={counties} />
