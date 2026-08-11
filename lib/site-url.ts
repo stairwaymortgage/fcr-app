@@ -2,29 +2,38 @@
  * The canonical origin, and the single decision about whether we are indexable.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ONE ENV VAR FLIPS THE WHOLE SITE AT DNS CUTOVER.
+ * ONE ENV VAR FLIPS THE WHOLE SITE. ⚠ CUTOVER HAS HAPPENED — 2026-08-06/07.
  *
- * Today NEXT_PUBLIC_SITE_URL is the Vercel host, so robots.txt disallows
- * everything and the sitemap is unreferenced. On cutover it becomes
- * https://floridacontractorregistry.com and — with no other change — robots
- * opens up, the sitemap emits apex URLs, canonical tags point at the apex, and
- * Open Graph images resolve against it.
+ * NEXT_PUBLIC_SITE_URL is https://floridacontractorregistry.com in production
+ * and the apex is live, indexable, and verified in Google Search Console. That
+ * single value opens robots.txt, makes the sitemap emit apex URLs, points every
+ * canonical tag at the apex, and resolves Open Graph images against it.
  *
- * That is the whole design goal: there is no second switch to forget.
+ * That is the whole design goal: there was no second switch to forget, and
+ * there was not one.
+ *
+ * ⚠ THIS PARAGRAPH USED TO SAY "Today NEXT_PUBLIC_SITE_URL is the Vercel host"
+ * AND WENT ON SAYING IT AFTER CUTOVER. It was read as current state on
+ * 2026-08-10 and produced a wrong recommendation — an operational instruction
+ * naming the vercel.app host for a site that had been on the apex for four
+ * days. A docblock describing "today" is a liability the day after; if the
+ * deployment changes again, this block changes in the same commit.
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * ⚠ WHY "INDEXABLE" IS NOT SIMPLY "NEXT_PUBLIC_SITE_URL IS SET".
  *
- * It is set today, to the preview host. If the rule were "configured means
- * live", the preview deployment would invite Google to index
- * fcr-app.vercel.app — and a duplicate of 266,305 profiles on a second hostname
- * is the single worst SEO mistake available to this project. Google would split
- * ranking signal across two hosts and may keep serving the vercel.app copy long
- * after cutover.
+ * Preview deployments inherit production environment variables on Vercel, and
+ * every preview has its own *.vercel.app hostname. If the rule were "configured
+ * means live", each preview would invite Google to index a duplicate of 266,305
+ * profiles on a second hostname — the single worst SEO mistake available to
+ * this project. Google would split ranking signal across the hosts and may keep
+ * serving the vercel.app copy long after anyone noticed.
  *
  * So indexability is derived from the canonical host MATCHING THE KNOWN
- * PRODUCTION APEX, which is a constant here rather than configuration. Setting
- * the env var to the apex is the one deliberate act that turns indexing on.
+ * PRODUCTION APEX (a constant here, not configuration) AND, where a request is
+ * in hand, the request's own host matching it too. Both must agree. That second
+ * check is what keeps a preview non-indexable now that the shared config points
+ * at the live apex — it is doing real work today, not standing by for a cutover.
  */
 
 /**

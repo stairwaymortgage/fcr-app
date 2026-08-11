@@ -59,7 +59,13 @@ const head = (t) => { console.log(""); console.log(t); };
 
 // The constants under test, mirrored from scripts/import-dbpr.mjs. Asserted
 // against the source below so they cannot drift apart silently.
-const BATCH_SIZE = 500;
+//
+// ⚠ THIS MIRROR EARNED ITS KEEP ON 2026-08-10. BATCH_SIZE went 500 -> 250 in
+// the importer and section 0 failed here on the next run — which is the whole
+// point of restating them. If you are reading this because that assertion just
+// failed: update the number here, do not delete the check.
+const BATCH_SIZE = 250;
+const MIN_BATCH_SIZE = 25;
 const TOUCH_BATCH_SIZE = 200;
 const RETRYABLE = new Set([
   "57014", "40001", "40P01", "53300", "08000", "08003", "08006", "XX000",
@@ -101,6 +107,11 @@ try {
     ok("BATCH_SIZE matches import-dbpr.mjs", batch === BATCH_SIZE, `${batch} vs ${BATCH_SIZE}`);
     ok("TOUCH_BATCH_SIZE matches import-dbpr.mjs", touch === TOUCH_BATCH_SIZE,
        `${touch} vs ${TOUCH_BATCH_SIZE}`);
+    const floor = Number(src.match(/^const MIN_BATCH_SIZE = (\d+);/m)?.[1]);
+    ok("MIN_BATCH_SIZE matches import-dbpr.mjs", floor === MIN_BATCH_SIZE,
+       `${floor} vs ${MIN_BATCH_SIZE}`);
+    ok("the halving floor is below the starting batch, or splitting is a no-op",
+       floor < batch, `${floor} < ${batch}`);
     ok("the touch batch is smaller than the upsert batch (URL length, not statement cost)",
        touch < batch, `${touch} < ${batch}`);
     ok("phase order in the source is insert -> update -> touch",
@@ -264,6 +275,28 @@ try {
        /const retryable = !error\.code \|\| RETRYABLE\.has\(error\.code\)/.test(src));
     ok("retries are bounded", /MAX_ATTEMPTS = \d+/.test(src));
     ok("backoff is exponential", /2 \*\* \(n - 1\)/.test(src));
+
+    /**
+     * ADAPTIVE HALVING — added 2026-08-10 after run e9964049 died at PHASE 2
+     * offset 16000 having failed all four attempts on 57014.
+     *
+     * ⚠ THE POINT IS THAT RETRYING ALONE CANNOT FIX A DETERMINISTIC TIMEOUT.
+     * When a statement's own work exceeds the ceiling, attempt five fails
+     * exactly like attempt one; the only remedy is a smaller statement. These
+     * assert the SHAPE of that mechanism — that withRetry hands the error back
+     * rather than throwing it, that 57014 specifically triggers a split, and
+     * that the split terminates at a floor instead of recursing forever.
+     */
+    ok("withRetry returns the error rather than throwing, so a caller can react",
+       /if \(!retryable \|\| n === MAX_ATTEMPTS\) return error;/.test(src));
+    ok("a persistent 57014 splits the batch instead of giving up",
+       /error\.code === "57014" && items\.length > MIN_BATCH_SIZE/.test(src));
+    ok("the split recurses on both halves", /writeBatch\(`\$\{label\}·b`/.test(src));
+    ok("splitting terminates — the floor is a constant, not a guess",
+       /const MIN_BATCH_SIZE = \d+;/.test(src));
+    ok("both write phases go through writeBatch, not withRetry directly",
+       (src.match(/await writeBatch\(/g) ?? []).length >= 2 &&
+       !/await withRetry\(`/.test(src));
   }
 
   // ────────────────────────────────────────────────────────

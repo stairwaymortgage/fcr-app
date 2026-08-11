@@ -56,9 +56,14 @@ export interface CronJob {
 
 /**
  * The env vars this codebase actually reads, verified by
- * `git grep -o "process\.env\.[A-Z_0-9]*"` on 2026-08-05. Nine names, and this
- * list is all nine — a settings page listing variables nothing reads would be
+ * `git grep -o "process\.env\.[A-Z_0-9]*"` on 2026-08-10. Ten names, and this
+ * list is all ten — a settings page listing variables nothing reads would be
  * describing a different application.
+ *
+ * ⚠ RE-RUN THAT GREP WHEN ADDING ONE. ALERT_EMAIL_TO was the tenth, added with
+ * the DBPR staleness alarm, and the count in this sentence is the kind of
+ * detail that goes stale silently — it is asserted here precisely so that a
+ * mismatch is a visible contradiction rather than a vague "roughly these".
  *
  * NEXT_PUBLIC_* ARE STILL LISTED, though they are visible in the browser
  * bundle by definition. Their presence is what matters here, and omitting them
@@ -107,7 +112,12 @@ const CONFIG: readonly Omit<ConfigItem, "present">[] = [
   },
   {
     name: "CRON_SECRET",
-    purpose: "Authenticates Vercel's call to the ID-photo purge",
+    purpose: "Authenticates Vercel's calls to the cron routes and cache busting",
+    required: false,
+  },
+  {
+    name: "ALERT_EMAIL_TO",
+    purpose: "Where the DBPR staleness alarm is sent (falls back to EMAIL_FROM)",
     required: false,
   },
 ];

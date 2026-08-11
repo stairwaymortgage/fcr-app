@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { requireAdmin } from "@/lib/auth";
-import { ACTIVE_SYNC_STATUSES } from "@/lib/sync-runs";
+import { ACTIVE_SYNC_STATUSES, STALE_RUN_HOURS } from "@/lib/sync-runs";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -58,6 +58,60 @@ function back(error?: QueueError): never {
 export async function queueRefresh(): Promise<void> {
   const user = await requireAdmin();
   const db = createClient();
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * SWEEP ABANDONED RUNS BEFORE REFUSING, NOT AFTER.
+   *
+   * A killed importer leaves status='running' with no completed_at, and
+   * 'running' is in ACTIVE_SYNC_STATUSES — so without this the guard below
+   * refuses forever, on behalf of a process that no longer exists. That
+   * happened (row 35398367, 2026-08-10) and the only way out was hand-written
+   * SQL. An admin surface whose one button cannot be unstuck from inside the
+   * product is not finished.
+   *
+   * ⚠ ORDER MATTERS. This must run BEFORE the active-run read, or the read sees
+   * the dead row and returns "active" on the very request that would have
+   * cleared it — the operator would have to press the button twice, which reads
+   * as a flaky button rather than a recovery.
+   *
+   * Mirrored in scripts/import-dbpr.mjs (sweepStaleRuns), so a refresh recovers
+   * whether the next thing to happen is a button press or an import. See
+   * STALE_RUN_HOURS for why 3h, and why 'queued' is deliberately untouched.
+   *
+   * FAILURE HERE IS NOT FATAL. The sweep is hygiene; queueing is the job. If it
+   * errors we log and fall through to the guard, which behaves exactly as it did
+   * before this existed.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  const staleCutoff = new Date(Date.now() - STALE_RUN_HOURS * 3_600_000).toISOString();
+  const { data: swept, error: sweepError } = await db
+    .from("sync_runs")
+    .update({
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error_message:
+        `abandoned: still 'running' after ${STALE_RUN_HOURS}h, closed when a ` +
+        `refresh was queued. The importer process that opened this row did not ` +
+        `reach its own error handler — killed, disconnected, or the machine went away.`,
+    })
+    // Repeating the status in the filter makes this a compare-and-swap: a run
+    // that legitimately finished between the cutoff being computed and this
+    // write landing is not dragged back to 'failed'.
+    .eq("status", "running")
+    .lt("started_at", staleCutoff)
+    .select("id, started_at");
+
+  if (sweepError) {
+    console.error("[admin/sync] abandoned-run sweep failed", sweepError.message);
+  } else if (swept && swept.length > 0) {
+    for (const run of swept) {
+      console.warn("[admin/sync] closed abandoned run", {
+        id: run.id,
+        runningSince: run.started_at,
+      });
+    }
+  }
 
   /**
    * THE GUARD, RE-CHECKED HERE RATHER THAN TRUSTED FROM THE PAGE.

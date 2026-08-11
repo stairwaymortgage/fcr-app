@@ -80,6 +80,32 @@ import { queueRefresh } from "./actions";
  *     trigger is HELD pending the question of where the CSV actually comes
  *     from, and inventing a cadence on screen would answer it by accident.
  *
+ *     ⚠ CONFIRMED THE HARD WAY, 2026-08-10. A refresh was expected on Sunday
+ *     the 9th and none happened, and the investigation found there was nothing
+ *     to fail: `git log --all -- .github` is empty — no workflow file has ever
+ *     existed on any branch — and vercel.json has never carried a sync entry.
+ *     The run that appeared that day was a queue request from the previous
+ *     WEDNESDAY, claimed 343,455s after it was made. The mockup's line was read
+ *     as a promise the product had never made.
+ *
+ *     WHAT WAS ADDED INSTEAD: /api/cron/check-sync-staleness, daily, which
+ *     alerts when the newest SUCCESSFUL run passes SYNC_STALE_AFTER_DAYS. It
+ *     does not schedule a refresh and cannot — the CSV is unreachable to any
+ *     runner (docs/dbpr-source.md). It makes the absence audible, which is the
+ *     failure this page's 14-day warning could only show to someone already
+ *     looking at it.
+ *
+ * ⚠ THE PER-RUN COUNTS DESCRIBE ONE ATTEMPT, NOT ONE WEEK, AND THE TABLE BELOW
+ * CANNOT SAY SO. When a run fails partway and is re-run, the week's real delta
+ * is split across two rows: on 2026-08-10, e9964049 failed after inserting
+ * 4,745 new licences, and the successful re-run c695fa18 therefore recorded
+ * "0 inserted" for a week that had 4,745. The census is recomputed from live
+ * fingerprints every time, so the re-run reclassifies those rows as 'updated' —
+ * correct behaviour, misleading column. DO NOT SUM THESE ROWS to get a period
+ * total; the failed run's inserts reappear inside the successful run's updates.
+ * See completeRun() in scripts/import-dbpr.mjs for the fix and why it is not
+ * done yet.
+ *
  * ⚠ THE SOURCE IS RENDERED FROM THE ROW, NEVER ASSUMED. Each run records the
  * source it actually read; the importer writes the local file path rather than
  * sync_runs' default DBPR URL, because no fetch happens. The panel renders
@@ -657,13 +683,11 @@ export default async function AdminSyncPage({
             every existing record in memory to classify the changes; neither fits a
             serverless function’s time or memory budget, and the source file is not
             reachable from one. Run{" "}
-            <code className="font-mono text-[12px]">node scripts/import-dbpr.mjs</code>{" "}
-            from the repository, then run{" "}
-            <code className="font-mono text-[12px]">
-              db/migrations/20260805_reference_counts_repair.sql
-            </code>{" "}
-            — the importer updates contractors and this log, and does not touch the
-            reference counts that /counties and /types read.
+            <code className="font-mono text-[12px]">{IMPORTER_COMMAND}</code> from
+            the repository — that is the whole procedure. Since 2026-08-10 the
+            importer also repairs the reference counts that /counties, /cities and
+            /types read, verifies them, and busts the cached listing pages, so
+            there is no follow-up SQL to remember.
           </p>
         </div>
       </main>

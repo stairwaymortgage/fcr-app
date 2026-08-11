@@ -105,7 +105,23 @@ try {
   // count — which is the branch this project has never been in.
   check("the never-delete rule is on the page", has("Orphans are never deleted"));
   check("the local-runner note is on the page", has("Refreshes run locally, not on Vercel"));
-  check("the reference-count follow-up is named", has("20260805_reference_counts_repair.sql"));
+  /**
+   * ⚠ INVERTED ON 2026-08-10. This used to assert the page NAMED a follow-up
+   * SQL file (20260805_reference_counts_repair.sql) for the operator to run
+   * after every import. The importer now does that itself as Phase 4, so the
+   * page naming a manual step would be instructing someone to repeat work that
+   * has already happened — and, worse, implying the counts are stale when they
+   * are not.
+   *
+   * ASSERTED IN BOTH DIRECTIONS. The positive check alone would pass on a page
+   * that said nothing at all about reference counts; the negative alone would
+   * pass on a page that had lost the runner note entirely. Together they pin
+   * the actual claim: the procedure is one command, and the page says so.
+   */
+  check("the page no longer names a manual reference-count step",
+        !has("20260805_reference_counts_repair.sql"));
+  check("and states the importer handles the counts itself",
+        has("repairs the reference counts"));
 
   console.log(`\n4 — the nav`);
   check("DBPR Sync link is present", has(">DBPR Sync<") || has('"DBPR Sync"'));

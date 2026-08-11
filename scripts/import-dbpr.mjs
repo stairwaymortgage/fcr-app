@@ -45,21 +45,45 @@ import { createClient } from "@supabase/supabase-js";
 const CSV_PATH = "_handoff/07_source_data/CONSTRUCTIONLICENSE_1.csv";
 
 /**
- * ⚠ 500, REDUCED FROM 1000 ON 2026-08-06 AFTER A STATEMENT TIMEOUT AT BATCH
- * 54000 ON A FULL RUN.
+ * ⚠ 250, REDUCED FROM 500 ON 2026-08-10 (and from 1000 on 2026-08-06).
  *
- * A 1000-row upsert is a single statement holding 1000 row locks and rewriting
- * every index entry for each of them; against the pooled connection Supabase
- * gives this script it was crossing the statement timeout partway through a
- * long run — not on any particular row, but as cumulative index bloat and
- * autovacuum lag made each batch dearer than the last. Halving the batch halves
- * the work inside one statement, which is the unit the timeout applies to.
+ * A batch is one statement holding that many row locks and writing an entry
+ * into EVERY index on contractors for each row. That last part is the whole
+ * story, and it got worse on 2026-08-07:
  *
- * IF 500 STILL TIMES OUT, THIS IS THE KNOB — lower it before reaching for
- * anything cleverer. Doubling the batch count costs round trips, which are
- * cheap; exceeding the statement timeout costs the whole run.
+ *   MEASURED — two runs, identical work (266,305 rows, 0 inserted, 0 updated,
+ *   100% unchanged, so pure touch phase):
+ *     f4604b84  2026-08-06  15 indexes   1,364s
+ *     2f1ab744  2026-08-10  18 indexes   2,079s     +52% for the same rows
+ *
+ * The three browse indexes from the TTFB work (idx_contractors_county_name,
+ * _city_name, _type_name) are 78MB of the table's 303MB of indexes, and they
+ * are the expensive kind: wide text keys inserted at random positions rather
+ * than appended. Two further measurements explain why the cost is superlinear:
+ *
+ *   · HOT updates: 290 out of 1,565,444 (0.02%). Effectively none. Every UPDATE
+ *     writes into all 18 indexes, because last_dbpr_sync_at is itself indexed
+ *     and every phase writes it — so no update on this table can ever be
+ *     heap-only.
+ *   · shared_buffers is 224MB and the index set is now 303MB. It used to fit.
+ *     It no longer does, so random index writes evict each other and hit disk.
+ *
+ * IF THIS STILL TIMES OUT, DO NOT JUST LOWER IT AGAIN — writeBatch() below now
+ * halves adaptively, which is strictly better than guessing a smaller constant.
+ * Lowering this only changes where the halving starts.
  */
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 250;
+
+/**
+ * The floor adaptive halving will not go below.
+ *
+ * Under ~25 rows the round trip dominates the statement, so halving stops
+ * buying anything. A 25-row upsert that still exceeds the statement timeout is
+ * not a volume problem — it is lock contention or a stuck autovacuum — and it
+ * should fail loudly rather than be subdivided into a thousand requests that
+ * fail one at a time.
+ */
+const MIN_BATCH_SIZE = 25;
 
 /**
  * The touch phase batches SMALLER, and not for the same reason.
@@ -94,21 +118,29 @@ const RETRYABLE = new Set([
   "XX000", // internal error; sometimes wraps a pooler reset
 ]);
 
+const MAX_ATTEMPTS = 5;
+
+/**
+ * ⚠ RETURNS THE FINAL ERROR RATHER THAN THROWING IT. Changed 2026-08-10.
+ *
+ * It used to throw, which meant "retries exhausted" and "this run is over" were
+ * the same event. They are not: a statement timeout has a second remedy that a
+ * retry loop cannot reach — making the statement smaller — and the caller can
+ * only choose it if it gets the error back. See writeBatch().
+ *
+ * Returns null on success, the error object on give-up. Callers MUST handle a
+ * non-null return; nothing here fails loudly on its own any more.
+ */
 async function withRetry(label, attempt) {
-  const MAX_ATTEMPTS = 4;
   for (let n = 1; ; n++) {
     const error = await attempt();
-    if (!error) return;
+    if (!error) return null;
 
     const retryable = !error.code || RETRYABLE.has(error.code);
-    if (!retryable || n === MAX_ATTEMPTS) {
-      throw new Error(
-        `${label} failed${error.code ? ` [${error.code}]` : ""} after ${n} attempt(s): ${error.message}`,
-      );
-    }
+    if (!retryable || n === MAX_ATTEMPTS) return error;
 
-    // 1s, 2s, 4s. Long enough for a pooler to recover, short enough that a run
-    // that is going to fail does not take an extra ten minutes to say so.
+    // 1s, 2s, 4s, 8s. Long enough for a pooler to recover, short enough that a
+    // run that is going to fail does not take an extra ten minutes to say so.
     const waitMs = 1000 * 2 ** (n - 1);
     console.log(
       `  ⚠ ${label}: ${error.code ?? "network"} — ${error.message}\n` +
@@ -116,6 +148,59 @@ async function withRetry(label, attempt) {
     );
     await new Promise((r) => setTimeout(r, waitMs));
   }
+}
+
+/**
+ * Write one batch, HALVING IT ON A STATEMENT TIMEOUT rather than retrying the
+ * same size until the run dies.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ RETRYING A 57014 AT THE SAME SIZE IS NOT RESILIENCE. IT IS MEASURED.
+ *
+ * Run e9964049 on 2026-08-10 died at "PHASE 2 update batch at offset 16000
+ * failed [57014] after 4 attempt(s)". Four attempts, four identical failures,
+ * 62,381 updates abandoned, and a re-run of the whole 35-minute job.
+ *
+ * That is what a DETERMINISTIC timeout looks like. 57014 is in RETRYABLE on the
+ * assumption it means transient contention, and sometimes it does — but when
+ * the statement's own work exceeds the ceiling, attempt five fails exactly like
+ * attempt one. The variable that governs the outcome is not time, it is SIZE,
+ * and no retry loop touches it.
+ *
+ * So on a persistent 57014 this splits the batch and recurses. A batch that
+ * cannot pass at 250 is tried at 125, then 63, down to MIN_BATCH_SIZE. The run
+ * degrades into being slower instead of ending.
+ *
+ * COST IS BOUNDED: 250 → 25 is four halvings, so a pathological batch costs at
+ * most ~2x the requests FOR THAT BATCH. Healthy batches are untouched — the
+ * split only happens after MAX_ATTEMPTS have already failed.
+ *
+ * ⚠ SAFE TO SPLIT BECAUSE THE WRITES ARE IDEMPOTENT. Both callers upsert on
+ * dbpr_sync_key or update by key, so writing rows 0-124 twice (once in the
+ * failed whole-batch attempt that timed out partway, once in the half) produces
+ * the same row. A timed-out statement is rolled back anyway; this does not
+ * depend on that, which is the point.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+async function writeBatch(label, items, write) {
+  const error = await withRetry(label, () => write(items));
+  if (!error) return;
+
+  if (error.code === "57014" && items.length > MIN_BATCH_SIZE) {
+    const mid = Math.ceil(items.length / 2);
+    console.log(
+      `  ⇘ ${label}: ${items.length} rows timed out ${MAX_ATTEMPTS}x — ` +
+      `splitting into ${mid} + ${items.length - mid}`,
+    );
+    await writeBatch(`${label}·a`, items.slice(0, mid), write);
+    await writeBatch(`${label}·b`, items.slice(mid), write);
+    return;
+  }
+
+  throw new Error(
+    `${label} failed${error.code ? ` [${error.code}]` : ""} after ${MAX_ATTEMPTS} attempt(s)` +
+    `${error.code === "57014" ? ` at the ${MIN_BATCH_SIZE}-row floor` : ""}: ${error.message}`,
+  );
 }
 
 /**
@@ -366,6 +451,71 @@ async function loadFingerprints(db, onProgress) {
 const SOURCE_URI = `file:${CSV_PATH}`;
 
 /**
+ * A 'running' row older than this is presumed dead and closed as 'failed'.
+ *
+ * ⚠ DUPLICATED FROM STALE_RUN_HOURS IN lib/sync-runs.ts, which carries the full
+ * reasoning (why 3h, and why 'queued' rows are never swept at any age). This is
+ * a plain .mjs script and cannot import a TypeScript module — the same seam as
+ * ZZTEST / TEST_ROW_LIKE. CHANGE BOTH OR NEITHER.
+ */
+const STALE_RUN_HOURS = 3;
+
+/**
+ * Close any run abandoned mid-flight, so a killed process cannot block the
+ * queue forever.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE FAILURE THIS FIXES IS INVISIBLE FROM THE PRODUCT.
+ *
+ * sync_runs row 35398367 was left 'running' with a null completed_at on
+ * 2026-08-10 because the importer process was killed before its catch block.
+ * 'running' is in ACTIVE_SYNC_STATUSES, so /admin/sync then refused every
+ * refresh request on behalf of a process that no longer existed, and the only
+ * remedy was hand-written SQL against production.
+ *
+ * The importer's own catch block cannot fix this: a process that is killed does
+ * not run its catch block. Recovery has to come from the NEXT participant to
+ * arrive — which is either this script starting, or an admin pressing the
+ * button (see the mirror of this sweep in app/admin/sync/actions.ts).
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ NEVER THROWS, AND IS NEVER AWAITED FOR ITS RESULT. Hygiene must not be able
+ * to stop a refresh. If the sweep fails, the run proceeds exactly as it did
+ * before this function existed.
+ */
+async function sweepStaleRuns(db) {
+  const cutoff = new Date(Date.now() - STALE_RUN_HOURS * 3_600_000).toISOString();
+
+  const { data, error } = await db
+    .from("sync_runs")
+    .update({
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error_message:
+        `abandoned: still 'running' after ${STALE_RUN_HOURS}h, closed by a later ` +
+        `importer start. The process that opened this row did not reach its own ` +
+        `error handler — killed, disconnected, or the machine went away.`,
+    })
+    // Compare-and-swap: a run that legitimately completed between the cutoff
+    // being computed and this write landing must not be dragged to 'failed'.
+    .eq("status", "running")
+    // ⚠ AND ONLY THE OLD ONES. Without this a second importer started
+    // deliberately in parallel would kill the first one's audit row mid-run.
+    .lt("started_at", cutoff)
+    .select("id, started_at");
+
+  if (error) {
+    console.warn(`⚠ could not sweep abandoned runs: ${error.message}`);
+    return;
+  }
+  for (const run of data ?? []) {
+    console.warn(
+      `⚠ closed abandoned run ${run.id} — it had been 'running' since ${run.started_at}`,
+    );
+  }
+}
+
+/**
  * Claim the oldest queued refresh, or open a fresh row if nobody asked.
  *
  * ═══════════════════════════════════════════════════════════════════════════
@@ -396,6 +546,15 @@ async function startRun(db, { sourceBytes, sourceHash }) {
     source_file_size: sourceBytes,
     source_file_hash: sourceHash,
   };
+
+  /**
+   * ⚠ BEFORE THE QUEUE READ, NOT AFTER. An abandoned 'running' row does not
+   * block this script's own claim (it filters on status='queued'), but leaving
+   * it open would keep /admin/sync's trigger refusing indefinitely. Sweeping on
+   * every import start means the queue self-heals on the next thing that
+   * happens, whichever end it comes from.
+   */
+  await sweepStaleRuns(db);
 
   const { data: queued, error: queueError } = await db
     .from("sync_runs")
@@ -457,6 +616,41 @@ async function startRun(db, { sourceBytes, sourceHash }) {
   return data;
 }
 
+/**
+ * Close the row as successful, with the census counts.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ THESE COUNTS DESCRIBE THIS ATTEMPT, NOT THE WEEK. A RE-RUN AFTER A FAILURE
+ * SPLITS ONE WEEK'S DELTA ACROSS TWO ROWS, AND NEITHER ROW SAYS SO.
+ *
+ * WORKED EXAMPLE, 2026-08-10 — both rows are still in the table:
+ *
+ *   e9964049  failed   Phase 1 inserted 4,745 new rows, then Phase 2 died at
+ *                      offset 16000 on a statement timeout. Counts NULL,
+ *                      because the census is written at completion.
+ *   c695fa18  success  0 inserted / 46,381 updated / 224,172 unchanged.
+ *
+ * The re-run reports ZERO inserts for a week that genuinely had 4,745 new
+ * licences. That is the reconcile logic working exactly as designed — the
+ * census is recomputed from live fingerprints, so rows written before the crash
+ * come back classified 'updated' or 'unchanged' — but it means the audit trail
+ * attributes the week to whichever attempt happened to finish, and the honest
+ * total is only visible by reading both rows together.
+ *
+ * ⚠ DO NOT "FIX" THIS BY SUMMING sync_runs ROWS. The failed run's Phase 1 rows
+ * appear again inside the successful run's `updated`, so adding the two
+ * double-counts them. There is no arithmetic over these columns that recovers
+ * the real figure.
+ *
+ * THE FIX, WHEN IT IS WORTH DOING: record the census when it is TAKEN (before
+ * the load) rather than when the run completes, so a failed run keeps the
+ * counts it measured. That is a schema change — the columns are written once,
+ * at completion — plus a decision about what a failed run's counts MEAN, which
+ * is why it is documented here rather than done. Not urgent: nothing reads
+ * these numbers except /admin/sync's history table, which shows them per-run
+ * and does not aggregate.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 async function completeRun(db, id, counts) {
   const { error } = await db
     .from("sync_runs")
@@ -794,11 +988,11 @@ try {
     let done = 0;
     for (let i = 0; i < records.length; i += BATCH_SIZE) {
       const batch = records.slice(i, i + BATCH_SIZE);
-      await withRetry(`${label} batch at offset ${i}`, async () => {
+      await writeBatch(`${label} batch at offset ${i}`, batch, async (rows) => {
         const { error } = await db
           .from("contractors")
           .upsert(
-            batch.map((r) => ({ ...r, last_dbpr_sync_at: runStamp })),
+            rows.map((r) => ({ ...r, last_dbpr_sync_at: runStamp })),
             { onConflict: "dbpr_sync_key", ignoreDuplicates: false },
           );
         return error;
@@ -840,11 +1034,11 @@ try {
       let touched = 0;
       for (let i = 0; i < toTouch.length; i += TOUCH_BATCH_SIZE) {
         const keys = toTouch.slice(i, i + TOUCH_BATCH_SIZE);
-        await withRetry(`touch batch at offset ${i}`, async () => {
+        await writeBatch(`touch batch at offset ${i}`, keys, async (batchKeys) => {
           const { error } = await db
             .from("contractors")
             .update({ last_dbpr_sync_at: runStamp })
-            .in("dbpr_sync_key", keys);
+            .in("dbpr_sync_key", batchKeys);
           return error;
         });
         touched += keys.length;
@@ -883,12 +1077,80 @@ try {
   console.log(`done in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 
   /**
-   * The reference counts are NOT refreshed here. /counties, /cities and /types
-   * read stored integers that this script has just invalidated — run
-   * db/migrations/20260805_reference_counts_repair.sql next, then
-   * `node scripts/verify-counts.mjs` to confirm. Automating it from here needs
-   * a decision about running SQL from Node that has not been taken.
+   * ═══════════════════════════════════════════════════════════════════════════
+   * PHASE 4 — REPAIR THE REFERENCE COUNTS, THEN CHECK THEM.
+   *
+   * /counties, /cities and /types render pre-computed integers that the three
+   * phases above have just invalidated. Until 2026-08-10 this was a SQL file a
+   * human ran afterwards, and the instruction lived in a code comment and one
+   * line of stdout — read by someone who had just watched a 35-minute job
+   * finish. Nothing enforced it and nothing reported it, which is how
+   * reference_license_types read 0 for all 29 rows for five weeks.
+   *
+   * ⚠ BEST EFFORT. NEITHER CALL MAY FAIL THE RUN. By this point the contractor
+   * data is committed and sync_runs is already closed 'success'. A repair that
+   * fails leaves the counts stale — visible on /admin/sync's drift panel, and
+   * fixable by running the SQL by hand — whereas an exception here would report
+   * a successful import as failed, and the obvious response to that is to run
+   * the whole two-hour job again over data that was already correct.
+   *
+   * ⚠ REQUIRES db/migrations/20260810_reference_counts_rpc.sql, INCLUDING ITS
+   * STATEMENT 1. The functions seq-scan 271k rows several times (~12s measured)
+   * and service_role gets PostgREST's 8s statement timeout unless that ALTER
+   * ROLE has been applied. Without it both calls return 57014 and this phase
+   * logs and moves on — which is the designed degradation, not a silent pass:
+   * the drift panel still reports the truth.
+   * ═══════════════════════════════════════════════════════════════════════════
    */
+  const { data: repaired, error: repairError } = await db.rpc("repair_reference_counts");
+
+  if (repairError) {
+    console.warn(
+      `\n⚠ PHASE 4 reference-count repair FAILED — /counties, /cities and /types\n` +
+      `  will serve last week's figures until this is run by hand.\n` +
+      `  ${repairError.code ?? "error"}: ${repairError.message}\n` +
+      `  ${
+        repairError.code === "PGRST202"
+          ? "db/migrations/20260810_reference_counts_rpc.sql has not been applied."
+          : repairError.code === "57014"
+            ? "statement timeout — apply STATEMENT 1 of that migration (service_role 120s)."
+            : "run db/migrations/20260805_reference_counts_repair.sql in the SQL editor."
+      }`,
+    );
+  } else {
+    const total = (repaired ?? []).reduce((sum, r) => sum + (r.rows_repaired ?? 0), 0);
+    console.log(
+      `\nPHASE 4 reference counts repaired: ${total.toLocaleString("en-US")} row(s) changed` +
+      (total === 0 ? " (already current)" : ""),
+    );
+    for (const row of repaired ?? []) {
+      if (row.rows_repaired > 0) console.log(`  ${row.table_name}: ${row.rows_repaired}`);
+    }
+
+    /**
+     * VERIFIED IMMEDIATELY, BECAUSE "the repair ran" IS NOT "the counts agree".
+     * The repair reports rows it changed; only this reports rows still wrong —
+     * a code present in the extract but absent from reference_license_types is
+     * repaired to nothing and reported by neither unless it is measured.
+     */
+    const { data: checked, error: verifyError } = await db.rpc("verify_reference_counts");
+    if (verifyError) {
+      console.warn(`⚠ reference-count verification failed: ${verifyError.message}`);
+    } else {
+      const bad = (checked ?? []).filter((r) => r.stored !== Number(r.live_count));
+      if (bad.length === 0) {
+        console.log(`  verified: all ${(checked ?? []).length} reference rows agree`);
+      } else {
+        console.warn(`  ⚠ ${bad.length} reference row(s) STILL disagree after repair:`);
+        for (const r of bad.slice(0, 10)) {
+          console.warn(`    ${r.table_name} ${r.key} — stored ${r.stored}, live ${r.live_count}`);
+        }
+        if (bad.length > 10) console.warn(`    …and ${bad.length - 10} more`);
+        console.warn("  run: node scripts/verify-counts.mjs --verbose");
+      }
+    }
+  }
+
   /**
    * BUST THE CACHED LISTING PAGES.
    *
@@ -934,10 +1196,18 @@ try {
     );
   }
 
-  console.log(
-    "\nNEXT: run db/migrations/20260805_reference_counts_repair.sql, then\n" +
-    "      node scripts/verify-counts.mjs",
-  );
+  /**
+   * NO "NEXT:" INSTRUCTION ANY MORE, AND THAT IS THE DELIVERABLE.
+   *
+   * This used to print "run db/migrations/20260805_reference_counts_repair.sql,
+   * then node scripts/verify-counts.mjs". Phase 4 does both. An unattended
+   * Sunday run must not end by addressing a human who is not there — a trailing
+   * instruction that nobody reads is indistinguishable from no instruction, and
+   * it is exactly how the counts went five weeks stale.
+   *
+   * If Phase 4 could not run, it says so ABOVE, loudly, with the command to fix
+   * it. Silence here means there is nothing left to do.
+   */
 } catch (err) {
   console.error(`\nIMPORT FAILED: ${err.message}`);
   if (run) {

@@ -35,6 +35,53 @@ export type SyncRunTrigger = "cron" | "manual";
  */
 export const ACTIVE_SYNC_STATUSES: readonly SyncRunStatus[] = ["queued", "running"];
 
+/**
+ * A 'running' row older than this is presumed dead and closed as 'failed'.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WHY THIS EXISTS: A KILLED IMPORTER BLOCKS THE QUEUE FOREVER.
+ *
+ * sync_runs row 35398367 sat 'running' from 2026-08-10 14:05 UTC with a null
+ * completed_at because the process that opened it was killed and never reached
+ * its own catch block. ACTIVE_SYNC_STATUSES includes 'running', so /admin/sync
+ * refused every subsequent queue request — the button reported "a refresh is
+ * already queued or running" about a process that had not existed for hours,
+ * and nothing in the product could clear it. It took a hand-written UPDATE.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * 3 HOURS IS ~5x THE LONGEST RUN EVER RECORDED (c695fa18, 2,205s / 37 min on
+ * 2026-08-10, which itself was ~50% slower than the 2026-08-06 run because of
+ * the three browse indexes added between them). Wide enough that a slow-but-
+ * alive import is never stomped mid-flight; narrow enough that a dead one does
+ * not outlive the working day.
+ *
+ * ⚠ 'queued' IS NEVER SWEPT, AT ANY AGE. A queued row waiting days is the
+ * feature working, not staleness: run 2f1ab744 was requested on a Wednesday and
+ * legitimately claimed the following Monday, 343,455s later. Ageing out queued
+ * rows would silently delete refresh requests.
+ *
+ * ⚠ DUPLICATED IN scripts/import-dbpr.mjs AS STALE_RUN_HOURS. That script is
+ * plain .mjs and cannot import this module. Same seam as ZZTEST /
+ * TEST_ROW_LIKE: if you change this number, grep for STALE_RUN_HOURS and change
+ * both. The two sweeps are otherwise identical by design.
+ */
+export const STALE_RUN_HOURS = 3;
+
+/**
+ * How old the newest SUCCESSFUL run may get before the staleness alarm fires.
+ *
+ * DBPR publishes weekly, so 7 would fire on the normal cadence every time a run
+ * slipped by an afternoon. 8 gives a full day of slack while still catching a
+ * missed week on the next daily check.
+ *
+ * ⚠ MEASURED AGAINST THE NEWEST SUCCESS, NOT THE NEWEST ROW — so a failed
+ * import does not reset the clock, and a week of failures still trips the alarm
+ * on schedule. That is the property that makes one threshold cover both "nobody
+ * ran it" and "it ran and died", which is why there is no second check for
+ * failures. See app/api/cron/check-sync-staleness/route.ts.
+ */
+export const SYNC_STALE_AFTER_DAYS = 8;
+
 export interface SyncRun {
   id: string;
   started_at: string;

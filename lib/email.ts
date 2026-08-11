@@ -155,6 +155,56 @@ async function deliver(to: string, mail: RenderedEmail): Promise<EmailResult> {
   }
 }
 
+/**
+ * An operational alert to whoever runs this site. Never throws.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE FIRST EMAIL IN THIS CODEBASE THAT IS NOT ADDRESSED TO A CONTRACTOR.
+ *
+ * /admin/settings states plainly that there are no admin notifications, and
+ * that was true and correct: every toggle in the mockup would have been dead on
+ * arrival. This is not a toggle. It is the reporting half of a monitor, and it
+ * exists because the DBPR refresh has exactly one failure mode that nothing
+ * else can see — nobody running it. The site keeps serving, every page renders,
+ * and the data quietly ages. That is invisible by construction.
+ *
+ * ⚠ IT IS NOT A NOTIFICATION SYSTEM AND MUST NOT GROW INTO ONE HERE. No
+ * preferences, no per-event routing, no templates in lib/email-copy.ts — the
+ * copy is passed in, because operational text is written next to the thing that
+ * detects the problem, not in a module about customer-facing wording. If a
+ * second alert ever needs different recipients or suppression, that is an
+ * alerting feature with state, and it starts by replacing this.
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ALERT_EMAIL_TO, FALLING BACK TO EMAIL_FROM. The fallback is deliberate: a
+ * deployment that can send mail at all has a From address that reaches us, so
+ * the alarm degrades to "sent somewhere we control" rather than "not sent".
+ * Missing configuration is reported to the caller and logged, never thrown —
+ * the monitor's own verdict is still true and still worth returning.
+ */
+export async function sendOperationalAlert(
+  subject: string,
+  body: string,
+): Promise<EmailResult> {
+  const to = process.env.ALERT_EMAIL_TO?.trim() || process.env.EMAIL_FROM?.trim();
+  if (!to) return { ok: false, error: "neither ALERT_EMAIL_TO nor EMAIL_FROM is set" };
+
+  // Plain text carried into a <pre> rather than marked up. These are read by
+  // one person, in a hurry, and the monospace block keeps the numbers aligned.
+  const escaped = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  return deliver(to, {
+    subject,
+    text: body,
+    html:
+      `<pre style="font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;` +
+      `white-space:pre-wrap;word-break:break-word">${escaped}</pre>`,
+  });
+}
+
 /** Notify a contractor that their claim has been decided. Never throws. */
 export async function sendClaimDecisionEmail(
   input: ClaimDecisionEmail,
