@@ -7,16 +7,26 @@ import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import StairwayAd from "@/components/StairwayAd";
+import { getContractorPage, parsePage } from "@/lib/browse";
+/**
+ * ⚠ THE BROWSE READS COME FROM browse-cached, NOT browse. Every import moved
+ * here on 2026-09-01 is page-independent and now served from Next's Data Cache
+ * under the "browse" tag; the two that stayed above vary with ?page and are
+ * deliberately uncached. Importing any of these from "@/lib/browse" still
+ * compiles and still returns the right answer — it just silently reinstates a
+ * query per request, which is the whole thing this change removed.
+ *
+ * They take NO db argument by design: each builds its own cookie-free client
+ * inside the cached callback. See lib/browse-cached.ts.
+ */
 import {
   getCitiesInCounty,
-  getContractorPage,
+  getCountyBySlug,
   getCountyNameMap,
   getTypeCountsInCounty,
   getTypeNameMap,
   getTypesWithCounts,
-  parsePage,
-} from "@/lib/browse";
-import { getCountyBySlug } from "@/lib/browse-cached";
+} from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { publicPageMetadata } from "@/lib/seo";
@@ -67,8 +77,7 @@ export async function generateMetadata({
 }: {
   params: { slug: string };
 }): Promise<Metadata> {
-  const db = createClient();
-  const county = await getCountyBySlug(db, params.slug);
+  const county = await getCountyBySlug(params.slug);
   if (!county) return { title: "County not found · Florida Contractor Registry" };
 
   /**
@@ -100,7 +109,7 @@ export default async function CountyPage({
 }) {
   const db = createClient();
   const asOf = await dataAsOf();
-  const county = await getCountyBySlug(db, params.slug);
+  const county = await getCountyBySlug(params.slug);
   if (!county) notFound();
 
   const page = parsePage(searchParams.page);
@@ -109,13 +118,15 @@ export default async function CountyPage({
   const rawType = (searchParams.type ?? "").toUpperCase().replace(/[^A-Z]/g, "");
 
   const [allTypes, countyNames, typeNames, cities, typeCounts] = await Promise.all([
-    getTypesWithCounts(db),
-    getCountyNameMap(db),
-    getTypeNameMap(db),
-    getCitiesInCounty(db, county.county_code),
+    getTypesWithCounts(),
+    getCountyNameMap(),
+    getTypeNameMap(),
+    getCitiesInCounty(county.county_code),
     // One RPC for all 29 counts. Moved into this batch because the list query
-    // below now depends on its result for the total.
-    getTypeCountsInCounty(db, county.county_code),
+    // below now depends on its result for the total. Cached since 2026-09-01 —
+    // it was the most expensive read on this page at 440 ms, and with only 67
+    // possible keys it is a cache hit on all but the first request per county.
+    getTypeCountsInCounty(county.county_code),
   ]);
 
   const activeType = allTypes.some((t) => t.type_code === rawType) ? rawType : "";

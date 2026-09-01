@@ -6,14 +6,16 @@ import ContractorList from "@/components/browse/ContractorList";
 import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import { getContractorPage, parsePage } from "@/lib/browse";
+// Page-independent reads, served from the Data Cache under the "browse" tag and
+// taking no db argument — see lib/browse-cached.ts. getContractorPage above
+// varies with ?page and stays uncached.
 import {
-  getContractorPage,
+  getCityBySlug,
   getCountyMeta,
   getCountyNameMap,
   getTypeNameMap,
-  parsePage,
-} from "@/lib/browse";
-import { getCityBySlug } from "@/lib/browse-cached";
+} from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { publicPageMetadata } from "@/lib/seo";
@@ -72,8 +74,7 @@ export async function generateMetadata({
 }: {
   params: { slug: string };
 }): Promise<Metadata> {
-  const db = createClient();
-  const city = await getCityBySlug(db, params.slug);
+  const city = await getCityBySlug(params.slug);
   if (!city) return { title: "City not found · Florida Contractor Registry" };
 
   // Title and description unchanged — indexed at ~1,000 pages. See the note in
@@ -97,16 +98,16 @@ export default async function CityPage({
 }) {
   const db = createClient();
   const asOf = await dataAsOf();
-  const city = await getCityBySlug(db, params.slug);
+  const city = await getCityBySlug(params.slug);
   if (!city) notFound();
 
   const page = parsePage(searchParams.page);
 
   const [result, countyNames, countyMeta, typeNames] = await Promise.all([
     getContractorPage(db, { city: city.city_name.toUpperCase(), state: "FL" }, page),
-    getCountyNameMap(db),
-    getCountyMeta(db),
-    getTypeNameMap(db),
+    getCountyNameMap(),
+    getCountyMeta(),
+    getTypeNameMap(),
   ]);
 
   const county = countyMeta.get(city.county_code);

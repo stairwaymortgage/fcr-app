@@ -6,13 +6,11 @@ import ContractorList from "@/components/browse/ContractorList";
 import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import {
-  getContractorPage,
-  getCountyNameMap,
-  getTypeNameMap,
-  parsePage,
-} from "@/lib/browse";
-import { getTypeByCode } from "@/lib/browse-cached";
+import { getContractorPage, parsePage } from "@/lib/browse";
+// Page-independent reads, served from the Data Cache under the "browse" tag and
+// taking no db argument — see lib/browse-cached.ts. getContractorPage above
+// varies with ?page and stays uncached.
+import { getCountyNameMap, getTypeByCode, getTypeNameMap } from "@/lib/browse-cached";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { publicPageMetadata } from "@/lib/seo";
@@ -57,8 +55,7 @@ export async function generateMetadata({
 }: {
   params: { code: string };
 }): Promise<Metadata> {
-  const db = createClient();
-  const type = await getTypeByCode(db, params.code);
+  const type = await getTypeByCode(params.code);
   if (!type) return { title: "License type not found · Florida Contractor Registry" };
 
   /**
@@ -100,15 +97,15 @@ export default async function TypePage({
 }) {
   const db = createClient();
   const asOf = await dataAsOf();
-  const type = await getTypeByCode(db, params.code);
+  const type = await getTypeByCode(params.code);
   if (!type) notFound();
 
   const page = parsePage(searchParams.page);
 
   const [result, countyNames, typeNames] = await Promise.all([
     getContractorPage(db, { license_type: type.type_code }, page),
-    getCountyNameMap(db),
-    getTypeNameMap(db),
+    getCountyNameMap(),
+    getTypeNameMap(),
   ]);
 
   const statewide = type.type_code.startsWith("C");

@@ -136,6 +136,19 @@ function ContractorCard({
  * Keyset pagination would fix that, but nobody browses that deep; they search.
  * The cap keeps a crafted ?page=999999 from becoming a cheap way to load the
  * database.
+ *
+ * rel="prev" / rel="next" ON THE TWO SEQUENTIAL LINKS, added 2026-09-01. They
+ * sit only on Previous and Next — those are by definition page−1 and page+1;
+ * the numbered links jump around the window and are not a sequence, so tagging
+ * them would be wrong.
+ *
+ * ⚠ GOOGLE STOPPED USING THESE AS AN INDEXING SIGNAL IN 2019 and says so
+ * publicly, so this is not an SEO fix and should not be sold as one. It is kept
+ * because Bing and other crawlers still read them, because it is correct HTML
+ * semantics for a sequence, and because it costs two attributes. The thing that
+ * actually governs how this pagination is indexed is the canonical tag, which
+ * points every ?page= and ?type= variant back at the unfiltered page 1 — see
+ * lib/seo.ts and the 2026-08-08 audit.
  */
 function Pagination({
   page,
@@ -162,7 +175,11 @@ function Pagination({
   return (
     <nav aria-label="Pagination" className="mt-8 flex flex-wrap items-center gap-2">
       {page > 1 && (
-        <Link href={hrefFor(page - 1)} className={`${linkClass} ${FOCUS_RING_PAPER}`}>
+        <Link
+          href={hrefFor(page - 1)}
+          rel="prev"
+          className={`${linkClass} ${FOCUS_RING_PAPER}`}
+        >
           ← Previous
         </Link>
       )}
@@ -201,7 +218,11 @@ function Pagination({
       )}
 
       {page < pageCount && (
-        <Link href={hrefFor(page + 1)} className={`${linkClass} ${FOCUS_RING_PAPER}`}>
+        <Link
+          href={hrefFor(page + 1)}
+          rel="next"
+          className={`${linkClass} ${FOCUS_RING_PAPER}`}
+        >
           Next →
         </Link>
       )}
