@@ -1,6 +1,7 @@
 import "server-only";
 
 import { absoluteUrl } from "@/lib/site-url";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { TEST_ROW_LIKE, excludeTestRows } from "@/lib/test-rows";
 
@@ -259,7 +260,65 @@ export async function contractorSitemap(chunk: number): Promise<string | null> {
    */
   if (!Number.isInteger(chunk) || chunk < 0 || chunk >= MAX_CHUNKS) return null;
 
-  const db = createClient();
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * SERVICE ROLE HERE, AND ONLY HERE. Changed 2026-09-01 to stop an
+   * intermittent 500. This is the one client swap in this file — the count
+   * above and pagesSitemap() below both still use the anon client.
+   *
+   * THE BUG IT FIXES, mechanism confirmed from production logs:
+   *
+   *   [sitemap] contractors-5.xml failed Error: sitemap chunk 5 at 254000:
+   *     canceling statement due to statement timeout
+   *       at async Promise.all (index 4)
+   *
+   * The six queries of the FIRST batch launch together — the stack traces name
+   * indices 3 and 4 — and six simultaneous deep-OFFSET scans contend enough
+   * that one crosses anon's statement_timeout of 3s. PostgREST returns 57014,
+   * the `throw` below rejects Promise.all, the remaining ~45 queries are
+   * abandoned, and the route catch returns 500 "Sitemap unavailable". Measured
+   * amplification on the same offsets: 0.58-0.74s run sequentially, 1.11-1.40s
+   * at six-way concurrency. Under production load that clears 3s.
+   *
+   *   anon            statement_timeout = 3s    ← what was failing
+   *   authenticated                     = 8s
+   *   service_role                      = 120s  ← 40x the headroom
+   *
+   * ⚠ THE FAST RESPONSE WAS THE FAILURE, which is what made this easy to
+   * misread: a failing chunk 5 returned in ~4s (aborted in the first batch)
+   * against ~8s for a successful one. It also returned 19 bytes — the length of
+   * "Sitemap unavailable", NOT an empty urlset, which is 111 bytes. The route's
+   * "never serve an empty urlset" contract held throughout; Google saw a 500
+   * and a retry instruction, never a de-listing signal.
+   *
+   * ⚠ 14661c1 MADE THIS MORE LIKELY, WHICH IS WORTH KNOWING RATHER THAN
+   * FORGETTING. Removing the 1,349 ms exact count from the top of this function
+   * also removed the serial delay that had been staggering the six-way burst.
+   * That commit is still right — the count was pure waste — but it is why the
+   * 500s became noticeable when they did.
+   *
+   * ⚠ WHY THIS IS NOT A PRIVILEGE ESCALATION, and the check to repeat if the
+   * query below ever changes: it selects ONE column, `slug`, from a table whose
+   * RLS policy is already "public read contractors" SELECT to {anon,
+   * authenticated} USING (true). Every row it returns is a URL we are actively
+   * asking Google to crawl. Bypassing RLS here grants access to nothing that
+   * was not already public. If this query is ever widened to another column or
+   * table, that reasoning has to be redone — service-role does not re-check it.
+   *
+   * ⚠ THE REAL COST, STATED: a service-role query may hold a pooler connection
+   * for up to 120s instead of being cut at 3s, and six run at once. On
+   * 2026-09-01 pooler saturation is exactly what turned a crawler into a 13x
+   * billing event. The trade is accepted because the alternative — a sitemap
+   * that intermittently 500s — is a live SEO defect, and because these chunks
+   * are CDN-cached and fetched by crawlers rather than by users. It is a trade,
+   * not a free win.
+   *
+   * createAdminClient() throws if SUPABASE_SERVICE_ROLE_KEY is missing rather
+   * than degrading to anon, so a misconfigured environment fails loudly here
+   * instead of quietly reinstating the 3s ceiling this change exists to escape.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  const db = createAdminClient();
   const start = chunk * URLS_PER_SITEMAP;
   const offsets: number[] = [];
   for (let o = 0; o < URLS_PER_SITEMAP; o += DB_PAGE) offsets.push(start + o);
