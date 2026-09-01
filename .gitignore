@@ -50,3 +50,9 @@ _handoff/
 
 before_*.html
 after_*.html
+
+chk_*.xml
+c?.xml
+p5.xml
+sitemap_index.xml
+sm_*.xml
