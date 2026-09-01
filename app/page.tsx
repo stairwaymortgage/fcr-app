@@ -148,20 +148,25 @@ async function countByCounty(db: Db, countyCode: string): Promise<number> {
 }
 
 /**
- * Contractors of one licence type, counted live.
+ * countByType() WAS HERE AND IS GONE — 2026-09-01.
  *
- * reference_license_types.contractor_count EXISTS BUT IS ALL ZEROS — the column
- * is in the schema and was never backfilled by the initial import (verified
- * 2026-07-30: every one of the 29 rows reads 0). Reading it would render "0
- * active licenses" on all six cards. Counted live until a backfill lands.
+ * It counted contractors of one licence type live, with this justification:
+ * "reference_license_types.contractor_count EXISTS BUT IS ALL ZEROS — the
+ * column is in the schema and was never backfilled by the initial import
+ * (verified 2026-07-30: every one of the 29 rows reads 0). Reading it would
+ * render '0 active licenses' on all six cards."
+ *
+ * THE BACKFILL LANDED. The importer's Phase 4 (repair_reference_counts) now
+ * repopulates that column on every successful run, and the five-week all-zeros
+ * window described above is the exact bug that phase was written to close.
+ * Verified on the live table before this change: all 29 rows match a live
+ * count(*) exactly — zero drift, 114,631 stored against 114,631 live — so the
+ * six cards render the same numbers they did, from a column instead of six
+ * index scans. getFeaturedTypes below simply selects the column.
+ *
+ * See lib/browse.ts's getTypesWithCounts for the fuller note on why this query
+ * shape was worth removing everywhere it appeared.
  */
-async function countByType(db: Db, typeCode: string): Promise<number> {
-  const { count } = await db
-    .from("contractors")
-    .select("*", { count: "exact", head: true })
-    .eq("license_type", typeCode);
-  return count ?? 0;
-}
 
 /** County cells: reference rows in the mockup's order, each with a live count. */
 async function getFeaturedCounties(db: Db) {
@@ -189,11 +194,11 @@ async function getFeaturedCounties(db: Db) {
   );
 }
 
-/** Type cards: reference rows in the mockup's order, each with a live count. */
+/** Type cards: reference rows in the mockup's order, each with its stored count. */
 async function getFeaturedTypes(db: Db) {
   const { data } = await db
     .from("reference_license_types")
-    .select("type_code, type_name")
+    .select("type_code, type_name, contractor_count")
     .in("type_code", FEATURED_TYPE_CODES);
 
   const byCode = new Map((data ?? []).map((row) => [row.type_code, row]));
@@ -202,13 +207,14 @@ async function getFeaturedTypes(db: Db) {
     (row): row is NonNullable<typeof row> => Boolean(row),
   );
 
-  return Promise.all(
-    ordered.map(async (row) => ({
-      code: row.type_code,
-      name: row.type_name,
-      count: await countByType(db, row.type_code),
-    })),
-  );
+  // No longer async per row: the count arrives with the row, so the six extra
+  // round trips this used to make are gone and Promise.all has nothing to wait
+  // for. See the countByType note above.
+  return ordered.map((row) => ({
+    code: row.type_code,
+    name: row.type_name,
+    count: (row.contractor_count as number | null) ?? 0,
+  }));
 }
 
 /**

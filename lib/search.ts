@@ -421,10 +421,22 @@ export interface LicenseTypeResult {
 /**
  * Matching licence types, for the License Types section.
  *
- * reference_license_types.contractor_count is zero on all 29 rows (never
- * backfilled by the initial import), so the count comes from a live query per
- * matched type. Bounded to 4 matches, so worst case is 4 extra HEAD requests —
- * and in practice a search matches zero or one type.
+ * ⚠ THE COUNT COMES FROM reference_license_types.contractor_count NOW. The note
+ * that stood here said the column "is zero on all 29 rows (never backfilled by
+ * the initial import), so the count comes from a live query per matched type".
+ * That stopped being true when the importer's Phase 4 (repair_reference_counts)
+ * started repopulating it on every successful run; verified before this change,
+ * all 29 rows match a live count(*) exactly.
+ *
+ * THIS CALL SITE MATTERED MOST OF THE THREE. /search reads searchParams, so it
+ * can never be cached — unlike the homepage and /types, which amortise their
+ * reads over a daily revalidate, every single search paid for these probes at
+ * request time. "Worst case is 4 extra HEAD requests" undersold them: each was
+ * a count over up to ~50k index entries, on the one route with no cache to hide
+ * behind and, since 2026-09-01, a 20-second ceiling to stay under.
+ *
+ * The counts are as fresh as the weekly import, which is the same cadence as
+ * the DBPR extract they describe. See lib/browse.ts's getTypesWithCounts.
  */
 export async function searchLicenseTypes(
   db: Db,
@@ -434,7 +446,7 @@ export async function searchLicenseTypes(
 
   let query = db
     .from("reference_license_types")
-    .select("type_code, type_name");
+    .select("type_code, type_name, contractor_count");
   for (const token of parsed.tokens) {
     query = query.or(`type_name.ilike.*${token}*,type_code.ilike.*${token}*`);
   }
@@ -442,15 +454,10 @@ export async function searchLicenseTypes(
   const { data, error } = await query.limit(4);
   if (error || !data) return [];
 
-  return Promise.all(
-    data.map(async (row) => {
-      const { count } = await db
-        .from("contractors")
-        .select("*", { count: "exact", head: true })
-        .eq("license_type", row.type_code);
-      return { ...row, count: count ?? 0 };
-    }),
-  );
+  return data.map(({ contractor_count, ...row }) => ({
+    ...row,
+    count: (contractor_count as number | null) ?? 0,
+  }));
 }
 
 /**

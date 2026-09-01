@@ -342,36 +342,65 @@ export interface TypeRow {
 }
 
 /**
- * All 29 licence types with live counts.
+ * All 29 licence types with their stored counts.
  *
- * COUNTED LIVE because reference_license_types.contractor_count is zero on all
- * 29 rows — the column exists but the initial import never backfilled it.
- * 29 concurrent index probes.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * READS reference_license_types.contractor_count. IT NO LONGER COUNTS LIVE.
+ *
+ * This function used to fire 29 concurrent `count(*) exact` probes — one per
+ * licence type — because the comment here said the column "is zero on all 29
+ * rows, the initial import never backfilled it". That was true when it was
+ * written and is NOT true any more: the importer's Phase 4
+ * (repair_reference_counts, scripts/import-dbpr.mjs) backfills it on every
+ * successful run, and the five-week all-zeros window that justified counting
+ * live is the exact bug that phase was built to close.
+ *
+ * Verified against the live table on 2026-09-01 before this change: all 29 rows
+ * match a live count(*) EXACTLY, zero drift, 114,631 stored against 114,631
+ * live. This is not an approximation being traded for speed — it is the same
+ * number, already computed.
+ *
+ * WHY IT MATTERED ENOUGH TO CHANGE. Each probe is a count over up to ~50k index
+ * entries, and together with the two sibling call sites (app/page.tsx's
+ * countByType, lib/search.ts's searchLicenseTypes) this query shape was the
+ * single largest consumer of database time on the project: 953,690 calls and
+ * 30.5 hours of execution since the 2026-07-29 stats reset, ~76% of all
+ * measured time, still running at ~675/hr when it was removed.
+ *
+ * STALENESS IS BOUNDED BY THE WEEKLY IMPORT, and that is the accepted trade —
+ * these are counts on an index page, sourced from an extract DBPR publishes
+ * weekly. A number up to a week old on /types is not meaningfully worse than
+ * one that was recomputed a second ago from data that is itself a week old.
+ *
+ * ⚠ IF PHASE 4 FAILS, THESE COUNTS GO STALE SILENTLY HERE — the page renders
+ * whatever the column says with no indication of its age. That failure is not
+ * invisible overall: Phase 4 logs loudly, and /admin/sync's drift panel
+ * compares stored against live and reports the gap. Do not add a drift check to
+ * this function; that would reintroduce the scan this change removed.
  *
  * ELEVEN TYPES HAVE ZERO CONTRACTORS, including every electrical class (EC, ER,
  * ES) — DBPR publishes electrical licences in a separate extract we do not
  * import. The index page shows them with a count of 0 rather than hiding them,
  * because a licence type existing with nobody holding it is true and useful;
- * their /type pages render an explicit empty state.
+ * their /type pages render an explicit empty state. Those eleven read 0 in the
+ * column too, so the swap does not change what they render.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 export async function getTypesWithCounts(db: Db): Promise<TypeRow[]> {
   const { data, error } = await db
     .from("reference_license_types")
-    .select("type_code, type_name, category, scope_description");
+    .select("type_code, type_name, category, scope_description, contractor_count");
 
   if (error || !data) return [];
 
-  const withCounts = await Promise.all(
-    data.map(async (type) => {
-      const { count } = await db
-        .from("contractors")
-        .select("*", { count: "exact", head: true })
-        .eq("license_type", type.type_code);
-      return { ...type, count: count ?? 0 };
-    }),
-  );
-
-  return withCounts.sort((a, b) => b.count - a.count);
+  // contractor_count is destructured out rather than spread through: TypeRow's
+  // field is `count`, and carrying both would leave two names for one number.
+  return data
+    .map(({ contractor_count, ...type }) => ({
+      ...type,
+      count: (contractor_count as number | null) ?? 0,
+    }))
+    .sort((a, b) => b.count - a.count);
 }
 
 /** Import from lib/browse-cached.ts in routes — see getCountyBySlug. */
