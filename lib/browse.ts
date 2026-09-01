@@ -425,32 +425,166 @@ export async function getTypeNameMap(db: Db): Promise<Map<string, string>> {
  * Counts per licence type within one county — the county page's filter counts.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ONE RPC, NOT ~18 ROUND TRIPS. Changed 2026-08-07.
+ * A TABLE READ, WITH THE RPC AS FALLBACK. Changed 2026-09-01.
  *
- * This used to issue one count(*) per licence type, concurrently — about 18 of
- * them on a populated county, each its own HTTP request to PostgREST. Measured
- * on the live table for Miami-Dade: 13.9 ms per type count versus 50.9 ms for
- * the single GROUP BY that replaces all of them. The database time is
- * comparable; eighteen round trips from a Vercel function are not.
+ * HISTORY, BECAUSE IT EXPLAINS THE SHAPE. Until 2026-08-07 this issued one
+ * count(*) per licence type, concurrently — about 18 per populated county, each
+ * its own HTTP request to PostgREST. Miami-Dade measured 13.9 ms per type count
+ * against 50.9 ms for the single GROUP BY that replaced all of them: comparable
+ * database time, eighteen fewer round trips. That GROUP BY is
+ * county_type_counts(), and it is still here, below, as the fallback.
  *
- * Requires db/migrations/20260807_county_type_counts_rpc.sql.
+ * WHY IT IS NO LONGER THE PRIMARY PATH. The RPC runs as anon, and anon carries
+ * statement_timeout = 3s. Its mean is 440.4 ms over 29,443 calls — but its TAIL
+ * crosses 3s, and when it does the read fails 57014 and the page renders with
+ * no filter counts at all. Observed twice on 2026-09-01: /county/osceola at
+ * 04:04:59 during the billing incident, and again in local verification of the
+ * Data-Cache work, where /county/broward rendered 0 ?type= links against 56 on
+ * production. Caching the call (lib/browse-cached.ts) made the failure rarer —
+ * 67 keys, once a day each — and therefore harder to notice, which is not the
+ * same as fixing it. A cache in front of a query that can fail is not a fix for
+ * the query.
  *
- * ⚠ THE RPC APPLIES THE ZZTEST EXCLUSION ITSELF, in SQL, duplicating
- * TEST_ROW_LIKE. It has to — a SQL function cannot import a TS constant. If the
- * prefix in lib/test-rows.ts ever changes, that function must change with it, or
- * the filter panel will count synthetic rows the listing beside it excludes.
+ * reference_county_type_counts is the same aggregate, precomputed by the
+ * importer's Phase 4 and read by primary key. Requires
+ * db/migrations/20260901_county_type_counts_table.sql; without it this falls
+ * back and behaves exactly as it did before.
  *
- * FAILS SOFT AND SAYS SO. A missing function (PGRST202, i.e. the migration has
- * not been run) or any other error returns an empty map, so the page renders
- * without filter counts rather than 500ing. The log names the migration,
- * because "the filter panel is empty" is not a symptom anyone would trace back
- * to a missing RPC on their own.
+ * ⚠ BOTH PATHS APPLY THE ZZTEST EXCLUSION IN SQL, duplicating TEST_ROW_LIKE —
+ * the RPC in its function body, the table in the repair that fills it. Neither
+ * can import a TypeScript constant. If the prefix in lib/test-rows.ts ever
+ * changes, BOTH must change with it, or the filter panel counts synthetic rows
+ * the listing beside it excludes. That is now two places, not one.
+ *
+ * FAILS SOFT AND SAYS SO, unchanged: any error on either path ends in an empty
+ * map, so the page renders without filter counts rather than 500ing, and each
+ * log line names the migration that would fix it.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export async function getTypeCountsInCounty(
   db: Db,
   countyCode: string,
 ): Promise<Map<string, number>> {
+  /**
+   * PRIMARY PATH — the denormalised table. Added 2026-09-01.
+   *
+   * A primary-key range scan on (county_code, type_code) replacing a GROUP BY
+   * over 271k rows. The RPC below is kept and still correct; it is simply no
+   * longer the thing standing between a visitor and the filter panel.
+   *
+   * ⚠ READ WITH THE CALLER'S CLIENT, WHICH IS ANON. No service-role client is
+   * introduced and none is needed: policy "public read county_type_counts"
+   * grants SELECT to anon and authenticated with qual = true, exactly like the
+   * three sibling reference tables. A privileged client here would be a
+   * standing escalation to read data anon can already select.
+   *
+   * county_code is NOT selected — it is the filter, identical on every row, and
+   * the shape below has no place for it.
+   */
+  const { data, error } = await db
+    .from("reference_county_type_counts")
+    .select("type_code, n")
+    .eq("county_code", countyCode);
+
+  if (!error && data && data.length > 0) {
+    return toTypeCountMap(data as TypeCountRow[]);
+  }
+
+  /**
+   * FALLBACK — and it is LOUD, because a silent one is the whole problem.
+   *
+   * Reached when the table is missing (the migration has not been run), when
+   * the read errors, or when a county has no rows (which for a real county
+   * means the repair has not populated it — every one of the 67 holds more than
+   * a page of contractors). All three are "the table is not carrying this yet",
+   * and all three degrade to precisely the pre-2026-09-01 behaviour rather than
+   * to an empty panel.
+   *
+   * ⚠ THIS WARNING EXISTING IN THE LOGS AT ALL MEANS THE 3s TAIL IS STILL LIVE.
+   * The RPC's mean is 440 ms against anon's 3s statement_timeout, and it is
+   * that tail — seen as 57014 on /county/osceola at 04:04:59 during the
+   * 2026-09-01 incident — that the table exists to remove. Falling back is
+   * correct behaviour and a temporary state, not a resting place: grep this
+   * string in Vercel logs after applying the migration and expect zero hits.
+   */
+  console.warn("[browse] reference_county_type_counts empty/failed, falling back to RPC", {
+    countyCode,
+    reason: error ? "error" : "empty",
+    code: error?.code,
+    message: error?.message,
+    hint:
+      error?.code === "PGRST205" || error?.code === "42P01"
+        ? "db/migrations/20260901_county_type_counts_table.sql has not been run."
+        : undefined,
+  });
+
+  return typeCountsFromRpc(db, countyCode);
+}
+
+/** The row shape both paths produce before mapping. */
+type TypeCountRow = { type_code: string; n: number | string };
+
+/**
+ * The ONE place the returned Map is built, shared by both paths.
+ *
+ * Extracted rather than duplicated so the two can never drift: the whole point
+ * of the fallback is that a caller cannot tell which path served it, and two
+ * copies of this mapping is exactly how that stops being true.
+ *
+ * count(*) is bigint; PostgREST may render it as a JSON string rather than a
+ * number, so it is coerced rather than trusted to arrive numeric. The table's
+ * `n` is a plain integer and arrives numeric, but the coercion is kept for the
+ * RPC path and costs nothing on the other.
+ *
+ * The `n > 0` filter is preserved from the original. It is a no-op against the
+ * table (every row comes from a GROUP BY, so n >= 1) and load-bearing against
+ * nothing — it is kept because dropping a filter is a shape change, and this
+ * function's contract is that there isn't one.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ THE SORT IS NEW ON 2026-09-01 AND IS THE ONE OBSERVABLE CHANGE HERE.
+ *
+ * NEITHER SOURCE ORDERS ITS ROWS. county_type_counts() is a bare GROUP BY and
+ * the table read is a bitmap heap scan; both return rows in whatever order the
+ * executor produces. app/county/[slug] then sorts the entries by count
+ * descending, and Array.prototype.sort is STABLE — so entries with EQUAL counts
+ * render in database row order, which is arbitrary and differs between the two
+ * paths.
+ *
+ * Measured on /county/broward, table path against the live RPC path: all 27
+ * codes and all 27 counts identical, and exactly two pairs transposed —
+ * PVDR=28 against RB=28, and RS=2 against RM=2. Both exact ties.
+ *
+ * Sorting here rather than leaving it fixes two things at once. The fallback
+ * becomes genuinely invisible: a caller cannot tell which path served it, which
+ * is the entire contract of having a fallback, and could not be true while the
+ * two disagreed on ties. And the page becomes DETERMINISTIC — today's order is
+ * not stable even between two calls to the same RPC, so a tie could swap on any
+ * render with nothing having changed.
+ *
+ * The cost is that a handful of tied entries may appear in a different order
+ * than they did before this shipped, once. Counts and codes are unaffected.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+function toTypeCountMap(rows: TypeCountRow[]): Map<string, number> {
+  return new Map(
+    rows
+      .map((r) => [r.type_code, Number(r.n)] as const)
+      .filter(([, n]) => Number.isFinite(n) && n > 0)
+      // Count descending to match how the page renders them, then type_code as
+      // the tiebreak — any total order would do, provided both paths use it.
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+  );
+}
+
+/**
+ * The original RPC read, unchanged in behaviour and now the fallback.
+ *
+ * FAILS SOFT AND SAYS SO, exactly as before: a missing function (PGRST202, the
+ * 20260807 migration not run) or any other error returns an empty map so the
+ * page renders without filter counts rather than 500ing.
+ */
+async function typeCountsFromRpc(db: Db, countyCode: string): Promise<Map<string, number>> {
   const { data, error } = await db.rpc("county_type_counts", {
     p_county_code: countyCode,
   });
@@ -468,14 +602,7 @@ export async function getTypeCountsInCounty(
     return new Map();
   }
 
-  const rows = (data ?? []) as { type_code: string; n: number | string }[];
-  // count(*) is bigint; PostgREST may render it as a JSON string rather than a
-  // number, so it is coerced rather than trusted to arrive numeric.
-  return new Map(
-    rows
-      .map((r) => [r.type_code, Number(r.n)] as const)
-      .filter(([, n]) => Number.isFinite(n) && n > 0),
-  );
+  return toTypeCountMap((data ?? []) as TypeCountRow[]);
 }
 
 /* ========================================================================== *
