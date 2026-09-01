@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Handoff reference materials (large files, local reference only)
 _handoff/
+
+before_*.html
+after_*.html
