@@ -14,6 +14,38 @@ import { contractorSitemap, pagesSitemap } from "@/lib/sitemap";
  *
  * 404s off the apex, exactly as /sitemap.xml does. See that file.
  */
+/**
+ * ⚠ ISR WAS ATTEMPTED HERE ON 2026-09-01 AND DOES NOT WORK. force-dynamic is
+ * restored deliberately; do not swap it for `revalidate` again without reading
+ * this.
+ *
+ * `export const revalidate = 86400` was applied in place of this line and the
+ * build was inspected rather than trusted. The route STILL compiled as
+ * ƒ (Dynamic), with no entry in `dynamicRoutes` and none in `routes` in
+ * .next/prerender-manifest.json — the directive was dead config, exactly like
+ * the six listing routes lib/supabase/public.ts documents.
+ *
+ * THE CAUSE IS NOT cookies()/headers(), WHICH WAS THE OBVIOUS SUSPECT. The
+ * handler reads headers() via safeHost(), so that was tested first: with the
+ * headers import and safeHost removed entirely, the route was STILL ƒ with no
+ * prerender entry. The blocker is structural — a dynamic segment ([file]) needs
+ * generateStaticParams to be prerendered, the same reason app/contractor/[slug]
+ * needed one before its ISR took effect.
+ *
+ * MAKING IT WORK WOULD COST TWO THINGS, NEITHER OF THEM FREE:
+ *   1. generateStaticParams enumerating pages.xml and every contractors-N,
+ *      which needs the chunk count at build time and prerenders all six chunks
+ *      into every deploy.
+ *   2. Giving up the request-host check — a prerendered route cannot read
+ *      headers(), so isIndexable() would fall back to the env-configured host
+ *      and the *.vercel.app alias would serve an indexable sitemap instead of
+ *      404ing. app/robots.ts explains at length why that host must not serve
+ *      indexable content.
+ *
+ * The origin-side caching this was meant to buy is still available without
+ * either cost — wrap the generation in unstable_cache, as lib/browse-cached.ts
+ * does — but that is a different change and is not made here.
+ */
 export const dynamic = "force-dynamic";
 
 /**
@@ -42,9 +74,11 @@ export async function GET(
       xml = await pagesSitemap();
     } else {
       const match = CONTRACTOR_FILE.exec(file);
-      // Number() on a \d{1,3} capture cannot be NaN, and the range is checked
-      // inside contractorSitemap() against the live count — so a chunk that
-      // exists today and not next week 404s rather than serving an empty file.
+      // Number() on a \d{1,3} capture cannot be NaN. The range is checked
+      // inside contractorSitemap() — since 2026-09-01 against MAX_CHUNKS and
+      // the emptiness of the result rather than an exact count(*), for the
+      // reasons set out there — so a chunk that exists today and not next week
+      // still 404s rather than serving an empty file.
       if (match) xml = await contractorSitemap(Number(match[1]));
     }
 

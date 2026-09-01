@@ -24,8 +24,40 @@ import { TEST_ROW_LIKE, excludeTestRows } from "@/lib/test-rows";
 /** sitemaps.org's per-file ceiling. Not a tuning knob. */
 export const URLS_PER_SITEMAP = 50_000;
 
-/** PostgREST's own page ceiling — asking for more silently truncates. */
+/**
+ * PostgREST's own page ceiling — asking for more silently truncates.
+ *
+ * ⚠ THIS IS A SERVER LIMIT, NOT A PREFERENCE, AND IT WAS RE-VERIFIED ON
+ * 2026-09-01 BEFORE AN ATTEMPT TO RAISE IT. Against the live project, as anon:
+ *
+ *   Range: 0-999    ->  Content-Range: 0-999/*   1000 rows
+ *   Range: 0-9999   ->  Content-Range: 0-999/*   1000 rows   ← capped
+ *   ?limit=10000    ->                           1000 rows   ← capped
+ *
+ * Supabase enforces db-max-rows = 1000. The cap is reported in Content-Range
+ * but supabase-js does NOT throw on it, so raising this constant does not fail
+ * — it silently returns a tenth of the rows. At DB_PAGE = 10_000 the loop below
+ * would build five offsets instead of fifty and each would come back with 1,000
+ * rows, so a chunk would advertise 5,000 URLs instead of 50,000 and Google
+ * would read the missing 45,000 as de-listed. Nothing would error.
+ *
+ * Do not raise this without first re-running the check above. If Supabase's
+ * db-max-rows is ever raised on the project, this constant can follow it and
+ * not before.
+ */
 const DB_PAGE = 1_000;
+
+/**
+ * Hard ceiling on the chunk index, checked before any query runs.
+ *
+ * Replaces the exact count that used to bound `chunk` — see contractorSitemap.
+ * 40 x 50,000 = 2,000,000 profiles, roughly seven times the current 271,050, so
+ * it will not bind on growth; its job is to stop /sitemaps/contractors-999.xml
+ * from reaching the database at all. The route's own regex allows three digits,
+ * which without this would be 1,000 reachable URLs each running the deepest
+ * possible page queries.
+ */
+const MAX_CHUNKS = 40;
 
 /** Concurrent slug pages. Fifty sequential round trips is a slow cold request. */
 const CONCURRENCY = 6;
@@ -195,8 +227,37 @@ export async function pagesSitemap(): Promise<string> {
  * never advertised at all.
  */
 export async function contractorSitemap(chunk: number): Promise<string | null> {
-  const chunks = await contractorSitemapCount();
-  if (!Number.isInteger(chunk) || chunk < 0 || chunk >= chunks) return null;
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * NO EXACT COUNT HERE ANY MORE. Removed 2026-09-01.
+   *
+   * This used to open with `await contractorSitemapCount()` and 404 any chunk
+   * at or beyond the total. That count is an exact count(*) over 271,050 rows
+   * behind a NOT LIKE filter — MEASURED AT 1,349 ms (parallel index-only scan,
+   * 13,611 heap fetches) — and it ran on EVERY chunk request purely to decide
+   * whether the chunk existed. Generating chunk N's URLs never needed it.
+   *
+   * WHAT REPLACES IT — a bounded check that issues no query at all, plus the
+   * result itself. Both halves are needed:
+   *
+   *   MAX_CHUNKS   rejects an absurd chunk index for free, before any I/O.
+   *   empty result rejects a chunk that is merely beyond today's data.
+   *
+   * WHY NOT SIMPLY RENDER AN EMPTY urlset for an out-of-range chunk: the route
+   * above is explicit that a sitemap URL which 200s with the wrong content is
+   * worse than one that does not exist, and an empty urlset for a chunk Google
+   * has previously seen populated reads as "every URL in here is gone". A 404
+   * says "come back", which is what the old count-based guard said too. This
+   * preserves that behaviour exactly.
+   *
+   * ⚠ CHUNK 0 IS EXEMPT from the empty-result rule, deliberately. The old guard
+   * used Math.max(1, ceil(count / URLS_PER_SITEMAP)), so chunk 0 was valid even
+   * against an empty table and rendered an empty urlset. Dropping that exemption
+   * would turn an empty contractors table from "a sitemap with no URLs" into
+   * "the sitemap is missing", which is a different and worse signal.
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  if (!Number.isInteger(chunk) || chunk < 0 || chunk >= MAX_CHUNKS) return null;
 
   const db = createClient();
   const start = chunk * URLS_PER_SITEMAP;
@@ -217,5 +278,20 @@ export async function contractorSitemap(chunk: number): Promise<string | null> {
   });
 
   const paths = pages.flat();
+
+  /**
+   * The second half of the guard the exact count used to provide. A chunk past
+   * the end of the data yields nothing from all of its pages; that is the
+   * signal, and it costs no extra query because the pages have already run.
+   *
+   * ⚠ THE RESIDUAL, STATED RATHER THAN HIDDEN: an out-of-range chunk below
+   * MAX_CHUNKS still pays for its page queries before 404ing, and those are the
+   * deepest and slowest ones. MAX_CHUNKS caps how many such URLs exist; the
+   * 404 response carries no Cache-Control, so they are not CDN-absorbed the way
+   * a 200 is. Not addressed here because closing it properly means knowing the
+   * row count cheaply, which is the keyset/estimate work that is out of scope.
+   */
+  if (paths.length === 0 && chunk > 0) return null;
+
   return urlset(paths);
 }
