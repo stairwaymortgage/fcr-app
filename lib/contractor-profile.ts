@@ -1,14 +1,27 @@
-import type { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Contractor profile reads — everything /contractor/[slug] needs.
  *
- * All reads use the caller's anon client (lib/supabase/server.ts) under RLS.
+ * All reads use an anon client under RLS. The type is the bare SupabaseClient —
+ * the same choice lib/browse.ts:38 makes — rather than the server client's
+ * return type, because /contractor/[slug] is statically rendered and so passes
+ * the COOKIE-FREE client from lib/supabase/public.ts. Widening this type is
+ * what lets that page opt out of dynamic rendering; see the caching note at the
+ * top of it.
+ *
+ * ⚠ BOTH CLIENTS CARRY THE ANON KEY AND THE SAME RLS REACH, so every query here
+ * behaves identically under either. That equivalence is the whole reason the
+ * swap is safe, and it is only true while nothing in this module reads a value
+ * that depends on WHO is asking. Nothing does: every function takes a slug, a
+ * county code or a licence type and returns the same bytes to everyone. A read
+ * whose answer varies by viewer does not belong in this file.
+ *
  * The only privileged statement anywhere near this page is the inquiry INSERT
  * in ./actions.ts, which is deliberately isolated there.
  */
 
-type Db = ReturnType<typeof createClient>;
+type Db = SupabaseClient;
 
 /**
  * A PROFILE IS ONE LICENCE ROW, BUT IT DISPLAYS THE AGENT'S WHOLE STACK.

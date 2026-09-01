@@ -27,7 +27,7 @@ import { endSentence } from "@/lib/format-name";
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { logoPublicUrl } from "@/lib/logo";
 import { dataAsOf } from "@/lib/data-as-of";
-import { createClient } from "@/lib/supabase/server";
+import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * Contractor profile — /contractor/[slug]
@@ -45,7 +45,8 @@ import { createClient } from "@/lib/supabase/server";
  * visitor. There is no longer a public write path here to protect, so the
  * question is moot unless one is added back.
  *
- * READS: lib/supabase/server.ts (anon, RLS). NO WRITE PATH. ./actions.ts still
+ * READS: lib/supabase/public.ts (anon, RLS, NO COOKIES — see the caching block
+ * below for why it must stay that way). NO WRITE PATH. ./actions.ts still
  * exports submitInquiry and is deliberately left in place — the inquiries table,
  * the /inquiries inbox and its RLS are all intact for the legacy data — but
  * nothing on this page or anywhere else links to it.
@@ -76,6 +77,121 @@ import { createClient } from "@/lib/supabase/server";
  */
 
 /* ========================================================================== *
+ * CACHING
+ * ========================================================================== */
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ISR, 24 HOURS. ADDED 2026-09-01 AFTER THIS ROUTE CAUSED A 13x BILLING SPIKE.
+ *
+ * WHAT HAPPENED. Overnight 2026-08-31/09-01 a crawler walked the profile corpus.
+ * Front-door traffic was FLAT (+6%), but this route went 334 → 5,206 hits per
+ * 40 minutes (15.6x) while every other route held steady. Because nothing here
+ * was cached, each of those hits was a fresh render with its own database
+ * round trips: Supabase went from ~4,200 req/hr to 55,351 at the 03:00 peak
+ * (13.2x — the exact multiple the Vercel alert fired on), Postgres saturated,
+ * and 158 requests sat in the pooler queue until they hit the 300-second
+ * function ceiling. 13.2 function-hours burned in a five-minute window.
+ *
+ * There are 271,050 rows in contractors. Every one is a public URL, robots.txt
+ * now says Allow: / , and the sitemap advertises all of them. An uncached
+ * profile route is therefore a standing invitation to convert anyone's crawl
+ * budget into our database bill. This directive is the fix.
+ *
+ * ⚠ THE `revalidate` LINE BELOW DOES NOTHING WITHOUT THE createPublicClient()
+ * IMPORT ABOVE, AND THAT IS THE ENTIRE POINT.
+ *
+ * lib/supabase/server.ts calls cookies(). Reading cookies opts a route into
+ * dynamic rendering permanently and SILENTLY — no warning, no build error, the
+ * directive simply never takes effect. lib/supabase/public.ts documents six
+ * listing routes that declared `revalidate = 86400` and still built as
+ * ƒ (Dynamic) for exactly this reason; the directive was dead code from the day
+ * it was written. Verified before this change: /contractor/[slug] answered
+ * x-vercel-cache: MISS on every request, and so do /county/[slug],
+ * /city/[slug] and /type/[code], whose `revalidate` lines are dead TODAY for
+ * the same cause plus their searchParams reads. Only the un-parameterised
+ * /counties, /cities and /types actually HIT.
+ *
+ * So: if anyone ever swaps this page back to lib/supabase/server.ts, this
+ * caching silently stops and the billing spike comes back with no failing test
+ * and nothing in the logs. The import and this directive are one change.
+ *
+ * SAFE BECAUSE THIS PAGE IS VIEWER-INDEPENDENT. The test in public.ts is not
+ * "is this page public" but "if two different people load this, must they see
+ * different bytes?" — and here the answer is no. Audited before the swap: the
+ * page reads no session, calls no getUser/requireUser, and Header, Footer and
+ * StairwayAd touch neither cookies nor auth. isClaimed() is derived from the
+ * ROW, not the viewer. If a per-viewer element is ever added to this page —
+ * an owner's "edit your profile" banner is the obvious candidate — it must go
+ * in a client component or a separate dynamic segment, NOT by reverting this
+ * import.
+ *
+ * STALENESS, AND WHY 24 HOURS IS THE RIGHT NUMBER. Profile edits do NOT wait
+ * for it: every write path that changes what this page renders calls
+ * revalidatePath('/contractor/[slug]') synchronously — approveClaim and
+ * rejectClaim via revalidateAfterClaimDecision, saveProfile directly, logo set
+ * and clear through writeLogoPath, releaseProfile directly, and the Stripe
+ * featured stub through the helper that is already waiting for it. All six were
+ * audited on 2026-09-01 and all six were already correct; lib/revalidate.ts had
+ * called revalidateProfile() as a deliberate no-op since the TTFB work, against
+ * precisely this day. A contractor still sees their edit immediately.
+ *
+ * What DOES wait up to 24 hours is DBPR-sourced data — licence status, expiry,
+ * address — because the weekly importer revalidates only the four listing
+ * routes (/, /counties, /cities, /types) and not 271,050 profiles. Per-profile
+ * invalidation there would mean a quarter-million revalidatePath calls and
+ * would cold-start the entire corpus, which is the stampede this directive
+ * exists to prevent. A day's lag on a WEEKLY extract is well inside the source
+ * data's own cadence, and was accepted explicitly when this shipped.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export const revalidate = 86400;
+
+/**
+ * A CEILING, NOT A TARGET. Measured p95 for this route is well under a second
+ * (0.45–0.64s sampled live on 2026-09-01), so 20s is roughly 30x headroom and
+ * no healthy request will ever reach it.
+ *
+ * It exists for the unhealthy ones. Vercel's default ceiling is 300 SECONDS,
+ * and on 2026-09-01 that default is what turned a slow database into a 13.2
+ * function-hour bill: 158 requests each sat in the pooler queue for a full five
+ * minutes before dying. statement_timeout does not bound this — anon is capped
+ * at 3s and those queries WERE being killed on time; what ran long was waiting
+ * for a connection, which no database-side timeout covers.
+ *
+ * With this cap the same event costs ~0.9 function-hours instead of 13.2. It is
+ * a blast-radius limiter for a failure mode that has already happened once.
+ */
+export const maxDuration = 20;
+
+/**
+ * ⚠ RETURNS AN EMPTY ARRAY ON PURPOSE. THIS IS NOT A STUB, AND DELETING IT
+ * SILENTLY TURNS THE CACHING ABOVE BACK OFF.
+ *
+ * In the Next 14 App Router a dynamic segment with no generateStaticParams is
+ * classified as fully dynamic and gets NO entry in dynamicRoutes — so
+ * `revalidate` above never takes effect no matter which Supabase client the
+ * page uses. That was measured, not assumed: with the cookie-free client and
+ * revalidate = 86400 already in place, `.next/prerender-manifest.json` still
+ * had an EMPTY dynamicRoutes and the route stayed uncached. Adding this
+ * function is what moves it into dynamicRoutes and switches ISR on.
+ *
+ * EMPTY rather than a list of slugs because there are 271,050 of them.
+ * Prerendering that corpus at build time would mean a quarter-million renders
+ * per deploy — hours of build, and a cold cache for every page nobody asks
+ * for. Returning [] prerenders nothing at build time while leaving
+ * dynamicParams at its default of true, so each profile is rendered on its
+ * FIRST request and then served from cache for 24 hours. First visitor pays
+ * once; the crawler that follows pays nothing.
+ *
+ * That is the whole shape of the fix: build stays fast, and the route stops
+ * being a database query per hit.
+ */
+export async function generateStaticParams(): Promise<{ slug: string }[]> {
+  return [];
+}
+
+/* ========================================================================== *
  * METADATA
  * ========================================================================== */
 
@@ -84,7 +200,7 @@ export async function generateMetadata({
 }: {
   params: { slug: string };
 }): Promise<Metadata> {
-  const db = createClient();
+  const db = createPublicClient();
   const contractor = await getContractorBySlug(db, params.slug);
 
   if (!contractor) {
@@ -836,7 +952,7 @@ export default async function ContractorProfilePage({
 }: {
   params: { slug: string };
 }) {
-  const db = createClient();
+  const db = createPublicClient();
   const asOf = await dataAsOf();
   const contractor = await getContractorBySlug(db, params.slug);
 

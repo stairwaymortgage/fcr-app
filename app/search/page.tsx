@@ -41,6 +41,19 @@ import { createClient } from "@/lib/supabase/server";
  * going to run per request.
  */
 
+/**
+ * A CEILING, NOT A TARGET — the blast-radius limiter added across the DB-backed
+ * dynamic routes on 2026-09-01.
+ *
+ * This route is the one that can never be cached away (the comment above says
+ * why: output depends on searchParams), which makes the cap matter MORE here
+ * than anywhere else — caching cannot rescue it, so the ceiling is the only
+ * protection it has. Measured p95 is 0.57–1.96s, the widest spread of the five
+ * because query cost varies with the term, and still an order of magnitude
+ * under 20s. The default it replaces is 300 seconds.
+ */
+export const maxDuration = 20;
+
 export async function generateMetadata({
   searchParams,
 }: {

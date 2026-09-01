@@ -42,6 +42,26 @@ import { createClient } from "@/lib/supabase/server";
 
 export const revalidate = 86400;
 
+/**
+ * ⚠ THE LINE ABOVE IS NOT IN EFFECT TODAY. Verified 2026-09-01: this route
+ * answers x-vercel-cache: MISS on every request. It reads searchParams for
+ * pagination AND renders through lib/supabase/server.ts, which calls cookies()
+ * — either alone forces dynamic rendering. See the caching block at the top of
+ * app/contractor/[slug]/page.tsx for the full mechanism. Left in place rather
+ * than deleted because making it true is a wanted change; it is simply a larger
+ * one than the cap below, since paginated output has to be cached per page.
+ * Do not read it as evidence that this route is cached.
+ */
+
+/**
+ * A CEILING, NOT A TARGET — the same blast-radius limiter added to the profile
+ * route on 2026-09-01, and for the same incident. Measured p95 here is 0.73s
+ * warm and 4.37s on a cold render, so 20s leaves ample headroom while removing
+ * the 300-second default that let 158 requests hang in the pooler queue and
+ * burn 13.2 function-hours in five minutes.
+ */
+export const maxDuration = 20;
+
 export async function generateMetadata({
   params,
 }: {

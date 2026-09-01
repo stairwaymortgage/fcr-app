@@ -51,6 +51,22 @@ import { createClient } from "@/lib/supabase/server";
 
 export const revalidate = 86400;
 
+/**
+ * ⚠ THE LINE ABOVE IS NOT IN EFFECT TODAY — verified x-vercel-cache: MISS on
+ * 2026-09-01. searchParams pagination plus lib/supabase/server.ts's cookies()
+ * call both force dynamic rendering; see the caching block at the top of
+ * app/contractor/[slug]/page.tsx. Kept because making it true is wanted, but it
+ * is a larger change than the cap below. Not evidence this route is cached.
+ */
+
+/**
+ * A CEILING, NOT A TARGET — the blast-radius limiter added across the DB-backed
+ * dynamic routes on 2026-09-01. Measured p95 here is 0.46–0.53s, so 20s is far
+ * above anything healthy; it exists only to remove the 300-second default that
+ * turned a saturated database into 13.2 function-hours of billing.
+ */
+export const maxDuration = 20;
+
 export async function generateMetadata({
   params,
 }: {
