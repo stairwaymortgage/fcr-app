@@ -1,5 +1,7 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 import { absoluteUrl } from "@/lib/site-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -159,24 +161,85 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-/** How many contractor rows there are, and therefore how many child files. */
+/**
+ * How many contractor rows there are, and therefore how many child files.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * SERVICE ROLE AND DATA-CACHED, BOTH ADDED 2026-09-10 TO STOP /sitemap.xml
+ * 500ing ON A COLD REQUEST. Reproduced on two consecutive production deploys:
+ * the first fetch after a deploy returned 500 in 3.6-4.6s, and every retry
+ * afterwards returned 200 in 0.10-0.93s.
+ *
+ * THE MECHANISM IS THE ONE f195445 ALREADY DOCUMENTED, in the one place that
+ * commit did not reach. It moved the CHUNK queries to service_role to escape
+ * anon's 3s statement_timeout and left this function on the anon client — so
+ * the index kept the exact ceiling the chunks had just escaped. The query
+ * below is `count: "exact", head: true` over 266,305 rows, i.e. a full
+ * count(*): the same operation 1046599 measured as the single largest consumer
+ * of database time on this project. Cold it crosses 3s, PostgREST returns
+ * 57014, the throw rejects, and app/sitemap.xml/route.ts turns that into a
+ * 500 — so Googlebot fetching a cold index gets "Sitemap unavailable".
+ *
+ * TWO CHANGES, FIXING IT AT DIFFERENT LAYERS ON PURPOSE:
+ *
+ *   service_role    removes the 3s ceiling (120s), so a cold count cannot time
+ *                   out even on the first call after a cache eviction.
+ *   unstable_cache  stops it being a per-request query at all — the count runs
+ *                   once a day instead of on every crawler fetch of the index.
+ *
+ * Either alone would only paper over it: the cache without the client swap
+ * still 500s on the first miss, and the swap without the cache runs a full
+ * count(*) on every index fetch forever. Both, or neither.
+ *
+ * ⚠ WHY THIS IS NOT A PRIVILEGE ESCALATION — f195445 asks for this check to be
+ * repeated whenever a service-role query here changes, so: this returns a
+ * NUMBER, not rows. `head: true` means no row data crosses the wire at all.
+ * The table is `contractors`, whose RLS policy is already "public read
+ * contractors" SELECT to {anon, authenticated} USING (true). Bypassing RLS for
+ * a count over a fully public table discloses nothing a crawler could not
+ * derive by reading the sitemap it is about to be handed. If this is ever
+ * widened to select columns, redo the reasoning — service_role does not
+ * re-check it.
+ *
+ * ⚠ THE PREDICATE MUST STILL MATCH contractorSitemap's EXACTLY, and the client
+ * swap does not weaken that — it is now the same client on both sides, which
+ * makes them easier to keep in step. The count decides how many child files
+ * the index advertises and the chunk query fills them; if one excludes a row
+ * the other includes, the last chunk either 404s or silently drops URLs. Both
+ * carry .not(slug is null) and both exclude synthetic rows — change one,
+ * change the other. scripts/verify-test-row-isolation.mjs asserts that
+ * excludeTestRows and TEST_ROW_LIKE both still appear in this file.
+ *
+ * ⚠ unstable_cache IS LEGAL HERE ONLY BECAUSE THE CALLBACK TOUCHES NO DYNAMIC
+ * API, and the client swap is what makes that true. It was on
+ * lib/supabase/server.ts's createClient(), which calls cookies() — and a
+ * dynamic API inside an unstable_cache callback throws at runtime. The admin
+ * client reads no cookies. Same pairing as lib/browse-cached.ts, which uses
+ * createPublicClient for exactly this reason.
+ *
+ * 24 HOURS because the URL SET changes only when contractors are added or
+ * removed, which is a weekly importer run at most. A stale count for a few
+ * hours advertises the same six children it advertised yesterday.
+ * ════════════════════════════════════════════════════════════════════════════
+ */
+const contractorSitemapCountCached = unstable_cache(
+  async (): Promise<number> => {
+    const db = createAdminClient();
+    const { count, error } = await excludeTestRows(
+      db
+        .from("contractors")
+        .select("dbpr_sync_key", { count: "exact", head: true })
+        .not("slug", "is", null),
+    );
+    if (error) throw new Error(`sitemap count: ${error.message}`);
+    return Math.max(1, Math.ceil((count ?? 0) / URLS_PER_SITEMAP));
+  },
+  ["sitemap-contractor-chunk-count"],
+  { revalidate: 86_400 },
+);
+
 export async function contractorSitemapCount(): Promise<number> {
-  const db = createClient();
-  /**
-   * ⚠ THIS PREDICATE MUST MATCH contractorSitemapChunk's EXACTLY. The count
-   * decides how many child files the index advertises and the chunk query fills
-   * them; if one excludes a row the other includes, the last chunk either 404s
-   * or silently drops URLs. Both carry .not(slug is null) and both exclude
-   * synthetic rows — change one, change the other.
-   */
-  const { count, error } = await excludeTestRows(
-    db
-      .from("contractors")
-      .select("dbpr_sync_key", { count: "exact", head: true })
-      .not("slug", "is", null),
-  );
-  if (error) throw new Error(`sitemap count: ${error.message}`);
-  return Math.max(1, Math.ceil((count ?? 0) / URLS_PER_SITEMAP));
+  return contractorSitemapCountCached();
 }
 
 /**

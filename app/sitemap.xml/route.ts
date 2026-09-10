@@ -34,9 +34,15 @@ export async function GET() {
     return new Response(xml, {
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
-        // One hour at the edge. The URL SET changes only when contractors are
-        // added or removed, which happens on a weekly refresh at most.
-        "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+        /**
+         * ⚠ 1h -> 24h ON 2026-09-10. The comment that stood here already gave
+         * the reason to raise it: the URL SET changes only when contractors are
+         * added or removed, i.e. a weekly importer run at most. An hourly TTL
+         * was revalidating something that changes weekly, 24x more often than
+         * the data justifies, and every revalidation is a function invocation
+         * and a database count.
+         */
+        "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
       },
     });
   } catch (err) {

@@ -87,7 +87,28 @@ export async function GET(
     return new Response(xml, {
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
-        "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+        /**
+         * ⚠ 1h -> 24h ON 2026-09-10, AND THIS IS THE ONLY CACHING LEVER THESE
+         * CHUNKS HAVE. The docblock at the top of this file rules out ISR here
+         * and points at unstable_cache as the remedy — which does NOT work for
+         * this route, and the reason is worth recording so nobody spends the
+         * afternoon on it. Next 14's Data Cache silently refuses any entry over
+         * 2MB ("Failed to set Next.js data cache, items over 2MB can not be
+         * cached", node_modules/next/dist/server/lib/incremental-cache/index.js).
+         * contractors-0.xml is 5.7MB of XML and its slug array is larger still,
+         * so wrapping either in unstable_cache is a no-op with a warning.
+         *
+         * That leaves the CDN, which was already working — measured
+         * X-Vercel-Cache: HIT with Age 695 — just expiring 24x more often than
+         * the weekly data warrants. Each expiry costs a cold regeneration:
+         * 50 PostgREST round trips six at a time, measured at 5.8s for chunk 0
+         * and 11.2-13.2s for chunk 5.
+         *
+         * stale-while-revalidate goes to a week so a crawler never waits on
+         * that regeneration; it gets the previous chunk instantly while the
+         * refresh happens behind it.
+         */
+        "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
       },
     });
   } catch (err) {
