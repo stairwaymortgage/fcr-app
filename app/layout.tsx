@@ -1,4 +1,3 @@
-import { Analytics } from "@vercel/analytics/next";
 import type { Metadata } from "next";
 import { Fraunces, Inter_Tight, JetBrains_Mono } from "next/font/google";
 
@@ -194,7 +193,6 @@ export default function RootLayout({
     >
       <body className="bg-paper font-sans text-ink antialiased">
         {children}
-        <Analytics />
       </body>
     </html>
   );
