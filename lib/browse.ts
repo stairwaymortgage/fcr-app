@@ -41,19 +41,34 @@ type Db = SupabaseClient;
 export const PAGE_SIZE = 25;
 
 /**
- * Deepest page we will serve. 400 × 25 = 10,000 rows.
+ * Deepest page we will serve. 20 × 25 = 500 rows.
  *
  * OFFSET pagination makes Postgres walk and discard every skipped row, so page
  * 1,531 of /type/cgc would scan 38,250 rows to show 25. Nobody browses that
  * deep — they search — and the cap stops a crafted ?page=999999 being a cheap
  * way to load the database.
  *
+ * ⚠ LOWERED 400 → 20 ON 2026-09-10 AS A COST CONTROL, NOT A PERFORMANCE ONE.
+ * /city, /county and /type are uncached (their `revalidate` lines are dead —
+ * absent from dynamicRoutes in .next/prerender-manifest.json), so every
+ * ?page= variant is a full render plus its database round trips. At 400 the
+ * crawlable surface was ~67 counties × 400 pages × ~50 ?type= facets before
+ * cities and types; the cap is the cheapest 20x cut available to it.
+ *
+ * WHAT THIS COSTS, STATED PLAINLY: contractors past row 500 of a listing are
+ * no longer reachable by paging through that listing. Broward and Miami-Dade
+ * have far more than 500. They remain reachable by search, by the ?type=
+ * facets, by direct URL, and — the part that matters for indexing — all
+ * 266,305 profiles are still in the contractor sitemaps, which is how Google
+ * discovers them anyway. Raising this back up is a one-line change; do it only
+ * alongside making those three routes actually cache.
+ *
  * pageCount IS CLAMPED TO THIS TOO, in getContractorPage. They have to agree:
  * an unclamped pageCount had the "last page" link pointing at page 1531 while
  * parsePage silently served page 400, so the link went somewhere other than
  * where it said.
  */
-export const MAX_PAGE = 400;
+export const MAX_PAGE = 20;
 
 /** Parse ?page=, clamped to [1, MAX_PAGE]. */
 export function parsePage(raw: string | undefined): number {

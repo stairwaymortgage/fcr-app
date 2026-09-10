@@ -74,8 +74,26 @@ export default function robots(): MetadataRoute.Robots {
          *
          * /api/ is listed because the cron route is the only thing under it and
          * it authenticates by secret; there is nothing there to index.
+         *
+         * ⚠ /search ADDED 2026-09-10, AND IT IS A CRAWL-BUDGET FIX RATHER THAN
+         * AN INDEXING ONE. The page has carried `robots: { index: false }` in
+         * its generateMetadata since it was built, so it was never going to be
+         * indexed — but a crawler has to FETCH a page to read that tag, and
+         * app/search/page.tsx is the one route that can never be cached (its
+         * output depends on searchParams, which is why it has no `revalidate`).
+         * Every one of those fetches was an uncached render and a database
+         * query bought for nothing. Disallowing it stops the fetch, which the
+         * noindex never could.
          */
-        disallow: ["/admin/", "/manage/", "/inquiries", "/dashboard", "/auth/", "/api/"],
+        disallow: [
+          "/admin/",
+          "/manage/",
+          "/inquiries",
+          "/dashboard",
+          "/auth/",
+          "/api/",
+          "/search",
+        ],
       },
     ],
     sitemap: absoluteUrl("/sitemap.xml"),
