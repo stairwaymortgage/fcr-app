@@ -160,8 +160,46 @@ export const config = {
    * failure the docblock at the top of this file describes. Conversely, moving
    * the gate INTO the matcher would put the whole public site one regex slip
    * away from requiring a login.
+   *
+   * ═════════════════════════════════════════════════════════════════════════
+   * 2026-09-10: ASSET EXCLUSIONS ADDED — `ads/`, and xml|txt|json|ico.
+   *
+   * This is NOT the narrowing the paragraph above forbids, and the difference
+   * is the whole justification. That warning is about removing PAGE paths,
+   * which would stop refreshing sessions for people browsing them. Everything
+   * added here is a sub-resource that no person navigates to as a document:
+   *
+   *   /robots.txt, /sitemap.xml, /sitemaps/*.xml — crawler fetches. No session
+   *     cookie is sent and none could be stored. Middleware ran, built a
+   *     Supabase client, called getUser(), found nothing, returned. Pure waste,
+   *     billed per request, and at 16.9M requests/mo that is the point.
+   *   /ads/stairway/*.html — reachable only via <iframe src> in
+   *     components/StairwayAd.tsx, so it loads AFTER the parent document's own
+   *     navigation has already passed through this middleware and already
+   *     rotated the cookies. The refresh being skipped is a duplicate of one
+   *     that happened milliseconds earlier, not the only one.
+   *   *.ico — generalises the favicon.ico entry that was already here.
+   *
+   * EVERY PAGE ROUTE IN THIS APP IS EXTENSIONLESS — /county/broward,
+   * /contractor/{slug}, /manage/{slug}, /admin/claims — so no page can match an
+   * extension in that list. Verified against the protected set specifically:
+   * /admin, /dashboard, /manage/*, /inquiries, /claim and
+   * /contractor/{slug}/claim all still match this matcher and still run the
+   * gate. The deny-list, needsUser/needsAdmin and getUser() were not touched.
+   *
+   * ⚠ .json IS SAFE ONLY BECAUSE THIS IS THE APP ROUTER. The Pages Router
+   * served client-side navigations from /_next/data/**.json, where excluding
+   * .json would have skipped middleware on real navigations. The App Router
+   * requests the SAME extensionless path with an RSC header and a ?_rsc= query,
+   * which still matches here — so client-side navigation keeps refreshing the
+   * session. If this app ever moves to the Pages Router, revisit .json first.
+   *
+   * `.html` is deliberately NOT in the extension list. `ads/` covers those
+   * files by path; a blanket .html rule is the kind that silently catches a
+   * future page.
+   * ═════════════════════════════════════════════════════════════════════════
    */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff|woff2)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|ads/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff|woff2|xml|txt|json|ico)$).*)",
   ],
 };
