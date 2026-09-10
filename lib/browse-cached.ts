@@ -4,6 +4,7 @@ import { cache } from "react";
 import {
   getCitiesInCounty as getCitiesInCountyUncached,
   getCityBySlug as getCityBySlugUncached,
+  getContractorPage as getContractorPageUncached,
   getCountyBySlug as getCountyBySlugUncached,
   getCountyMeta as getCountyMetaUncached,
   getCountyNameMap as getCountyNameMapUncached,
@@ -12,6 +13,7 @@ import {
   getTypeNameMap as getTypeNameMapUncached,
   getTypesWithCounts as getTypesWithCountsUncached,
   type CityRow,
+  type ContractorPage,
   type TypeRow,
 } from "@/lib/browse";
 import { createPublicClient } from "@/lib/supabase/public";
@@ -251,5 +253,110 @@ export async function getTypeCountsInCounty(countyCode: string): Promise<Map<str
       message: err instanceof Error ? err.message : String(err),
     });
     return new Map();
+  }
+}
+
+
+/* ========================================================================== *
+ * THE PAGINATED READ — Tier 2, added 2026-09-11
+ * ========================================================================== */
+
+/**
+ * One page of contractors, Data-Cached per (filter, page, knownTotal).
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THIS IS THE "TIER 2" f150991 DELIBERATELY DID NOT DO, AND THE REASON IT
+ * DECLINED HAS SINCE BEEN REMOVED. That commit's note reads: "Tier 2 (caching
+ * getContractorPage per page) is deliberately NOT done: it would be ~31,700
+ * keys". That figure came from MAX_PAGE = 400. Step 2 of the cost work lowered
+ * MAX_PAGE to 20 on 2026-09-10, which cuts the reachable key space by 20x
+ * along its deepest dimension and is what makes this worth doing now.
+ *
+ * ⚠ IT DOES NOT REDUCE FUNCTION INVOCATIONS, AND NOTHING HERE PRETENDS TO.
+ * /county, /city and /type read searchParams, so they are dynamically rendered
+ * on every request and each request is an invocation no matter what this
+ * caches. Forcing them into ISR was attempted on 2026-09-11 and produced
+ * DYNAMIC_SERVER_USAGE — a 500 on every one of those pages; see the note in
+ * app/county/[slug]/page.tsx. What this removes is the DATABASE WORK inside
+ * those invocations: the row query and, for /city and /type, the exact count
+ * that goes with it. That is Fluid Active CPU and Supabase load, not
+ * invocation count.
+ *
+ * THE KEY IS THE FILTER ENTRIES, SORTED. filters arrives as a
+ * Record<string, string> whose key order is the call site's insertion order —
+ * /county builds { county_code } or { county_code, license_type } depending on
+ * the facet. unstable_cache derives its key by serialising the arguments, so an
+ * object would make {a,b} and {b,a} two different entries for one answer.
+ * Sorting the entries before they cross the boundary makes the key canonical.
+ *
+ * knownTotal IS PART OF THE KEY, DELIBERATELY. It changes the `total` and
+ * `pageCount` in the result, so it cannot be cached across two different
+ * values — and it is not merely cosmetic: the county page passes a stored count
+ * so the expensive exact count(*) never runs. It moves only on a weekly import,
+ * which busts this tag anyway, so it adds no churn in practice. null rather
+ * than undefined because undefined is not JSON-serialisable and would make the
+ * key unstable.
+ *
+ * ⚠ RULE 3 ABOVE IS THE SUBTLE ONE HERE, AND IT IS WHY THIS IS NOT A ONE-LINE
+ * WRAPPER. getContractorPage does not throw on a failed query: it logs and
+ * returns { rows: [], total: 0, failed: true } so the page can say "we could
+ * not load this" instead of 500ing. Caching that object would pin an EMPTY
+ * LISTING for 24 hours on one transient timeout — on the pages the sitemap
+ * sends Google to. So the callback throws when `failed` is set, nothing is
+ * written, and the fail-soft shape is rebuilt outside the cache boundary.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+const contractorPageCached = unstable_cache(
+  async (
+    filterEntries: [string, string][],
+    page: number,
+    knownTotal: number | null,
+  ): Promise<ContractorPage> => {
+    // RULE 1: the client is built INSIDE, cookie-free. A `db` parameter would
+    // let a caller hand in a session-carrying client and write a per-user
+    // answer into a shared cache entry.
+    const result = await getContractorPageUncached(
+      createPublicClient(),
+      Object.fromEntries(filterEntries),
+      page,
+      knownTotal ?? undefined,
+    );
+
+    // RULE 3: never cache a failure. getContractorPage has already logged the
+    // cause by this point, so this throw needs no log of its own — unlike the
+    // county-counts wrapper above, whose throw is raised for a case the
+    // uncached read treats as success.
+    if (result.failed) {
+      throw new Error(`contractor page not cached: query failed (page ${page})`);
+    }
+    return result;
+  },
+  ["browse-contractor-page"],
+  { revalidate: DAY_SECONDS, tags: [BROWSE_TAG] },
+);
+
+/**
+ * Cache-wrapped getContractorPage. Takes no `db` — see rule 1 above.
+ *
+ * Signature otherwise matches lib/browse.ts's, so the three call sites change
+ * only by dropping their first argument.
+ */
+export async function getContractorPage(
+  filters: Record<string, string>,
+  page: number,
+  knownTotal?: number,
+): Promise<ContractorPage> {
+  const filterEntries = Object.entries(filters).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+  try {
+    return await contractorPageCached(filterEntries, page, knownTotal ?? null);
+  } catch {
+    /**
+     * The fail-soft contract, reapplied. Shape is copied from the uncached
+     * read's error branch so ContractorList renders the same "could not load"
+     * state it has always rendered. pageCount 0 rather than 1 — matching
+     * lib/browse.ts — so the pagination nav renders nothing at all.
+     */
+    return { rows: [], total: 0, page, pageCount: 0, failed: true };
   }
 }

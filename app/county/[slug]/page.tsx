@@ -7,12 +7,13 @@ import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import StairwayAd from "@/components/StairwayAd";
-import { getContractorPage, parsePage } from "@/lib/browse";
+import { parsePage } from "@/lib/browse";
 /**
- * ⚠ THE BROWSE READS COME FROM browse-cached, NOT browse. Every import moved
- * here on 2026-09-01 is page-independent and now served from Next's Data Cache
- * under the "browse" tag; the two that stayed above vary with ?page and are
- * deliberately uncached. Importing any of these from "@/lib/browse" still
+ * ⚠ THE BROWSE READS COME FROM browse-cached, NOT browse. Every import below
+ * is served from Next's Data Cache under the "browse" tag. The 2026-09-01 set
+ * is page-independent and keyed per entity; getContractorPage joined them on
+ * 2026-09-11 and is keyed per (filter, page, knownTotal) because it varies with
+ * ?page and ?type. Importing any of these from "@/lib/browse" still
  * compiles and still returns the right answer — it just silently reinstates a
  * query per request, which is the whole thing this change removed.
  *
@@ -21,6 +22,7 @@ import { getContractorPage, parsePage } from "@/lib/browse";
  */
 import {
   getCitiesInCounty,
+  getContractorPage,
   getCountyBySlug,
   getCountyNameMap,
   getTypeCountsInCounty,
@@ -30,7 +32,6 @@ import {
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { publicPageMetadata } from "@/lib/seo";
-import { createClient } from "@/lib/supabase/server";
 
 /**
  * Single county — /county/[slug]
@@ -107,7 +108,6 @@ export default async function CountyPage({
   params: { slug: string };
   searchParams: { page?: string; type?: string };
 }) {
-  const db = createClient();
   const asOf = await dataAsOf();
   const county = await getCountyBySlug(params.slug);
   if (!county) notFound();
@@ -154,7 +154,6 @@ export default async function CountyPage({
     : (county.contractor_count ?? undefined);
 
   const result = await getContractorPage(
-    db,
     activeType
       ? { county_code: county.county_code, license_type: activeType }
       : { county_code: county.county_code },

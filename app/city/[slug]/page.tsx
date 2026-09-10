@@ -6,12 +6,13 @@ import ContractorList from "@/components/browse/ContractorList";
 import { Breadcrumb } from "@/components/browse/PageHero";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import { getContractorPage, parsePage } from "@/lib/browse";
-// Page-independent reads, served from the Data Cache under the "browse" tag and
-// taking no db argument — see lib/browse-cached.ts. getContractorPage above
-// varies with ?page and stays uncached.
+import { parsePage } from "@/lib/browse";
+// Data-Cached reads under the "browse" tag, all taking no db argument — see
+// lib/browse-cached.ts. getContractorPage joined them on 2026-09-11: it varies
+// with ?page, so it is keyed per (filter, page) rather than per entity.
 import {
   getCityBySlug,
+  getContractorPage,
   getCountyMeta,
   getCountyNameMap,
   getTypeNameMap,
@@ -19,7 +20,6 @@ import {
 import { FOCUS_RING_PAPER } from "@/lib/focus";
 import { dataAsOf } from "@/lib/data-as-of";
 import { publicPageMetadata } from "@/lib/seo";
-import { createClient } from "@/lib/supabase/server";
 
 /**
  * Single city — /city/[slug]
@@ -96,7 +96,6 @@ export default async function CityPage({
   params: { slug: string };
   searchParams: { page?: string };
 }) {
-  const db = createClient();
   const asOf = await dataAsOf();
   const city = await getCityBySlug(params.slug);
   if (!city) notFound();
@@ -104,7 +103,7 @@ export default async function CityPage({
   const page = parsePage(searchParams.page);
 
   const [result, countyNames, countyMeta, typeNames] = await Promise.all([
-    getContractorPage(db, { city: city.city_name.toUpperCase(), state: "FL" }, page),
+    getContractorPage({ city: city.city_name.toUpperCase(), state: "FL" }, page),
     getCountyNameMap(),
     getCountyMeta(),
     getTypeNameMap(),
